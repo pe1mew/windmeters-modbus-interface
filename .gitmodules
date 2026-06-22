@@ -1,0 +1,6 @@
+[submodule "hardware/KiCad/my-KiCad-library"]
+	path = hardware/KiCad/my-KiCad-library
+	url = git@github.com:pe1mew/my-KiCad-library.git
+[submodule "hardware/KiCad/wch_kicad_library"]
+	path = hardware/KiCad/wch_kicad_library
+	url = https://github.com/Taoyukai/wch_kicad_library.git

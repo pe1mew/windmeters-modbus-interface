@@ -1,0 +1,33 @@
+# ---- KiCad ----
+
+# Temporary and lock files
+*.000
+*~
+_autosave-*
+*.lck
+*.kicad_prl
+
+# Auto-generated backups
+*-backups/
+*-bak
+*.bak
+fp-info-cache
+
+# Exported / fabrication output
+*.net
+*.dsn
+*.ses
+
+# Rescue libraries
+*-rescue.lib
+*-rescue.dcm
+
+# KiCad project local settings
+*.kicad_prl
+
+# Editor history (vscode-local-history etc.)
+.history/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db

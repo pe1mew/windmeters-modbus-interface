@@ -1,0 +1,6 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "my-KiCad-library") (type "KiCad") (uri "${KIPRJMOD}/my-KiCad-library/my-KiCad-library.kicad_sym") (options "") (descr ""))
+	(lib (name "wch_mcu") (type "KiCad") (uri "${KIPRJMOD}/wch_kicad_library/symbols/wch_mcu.kicad_sym") (options "") (descr ""))
+	(lib (name "wch_mcu_peripheral") (type "KiCad") (uri "${KIPRJMOD}/wch_kicad_library/symbols/wch_mcu_peripheral.kicad_sym") (options "") (descr ""))
+)
