@@ -1,0 +1,9 @@
+Project-specific (private) libraries go here.
+
+Each library lives in its own subfolder, e.g.:
+
+    lib/modbus/modbus.c
+    lib/modbus/modbus.h
+
+PlatformIO compiles and links them automatically. See:
+https://docs.platformio.org/page/librarymanager/ldf.html
