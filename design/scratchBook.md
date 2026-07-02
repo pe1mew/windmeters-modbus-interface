@@ -72,9 +72,9 @@ Five minutes on a breezy day is sufficient.
 
 ### Implementation note
 
-C is stored as the calibration factor in firmware (compile-time define or holding register). The SysTick ISR applies it as:
+C is a compile-time define (decided in TDS FR-S25: integer fixed-point, unit 0.001 m/rotation, default 980; no holding register). The SysTick ISR applies it in the millisecond domain (TDS FR-S06):
 ```
-wind_speed_0.1ms  =  (count × C × 10) / window_seconds
+wind_speed_0.1ms  =  (count × C_scaled × 10) / window_ms
 ```
 
 ### Mechanical factors affecting calibration
@@ -82,7 +82,7 @@ wind_speed_0.1ms  =  (count × C × 10) / window_seconds
 | Factor | Effect | Mitigation |
 |--------|--------|------------|
 | Bearing friction | Dead band at low speeds; reduces η below geometric ideal | Accept or add low-speed cut-off register |
-| Rotor inertia | Lag on instantaneous readings; natural low-pass filter | Use averaged register (30004) for meaningful data |
+| Rotor inertia | Lag on instantaneous readings; natural low-pass filter | Use the averaged register (`0x0003`) for meaningful data |
 | Cup shape | Sets baseline η (hemispherical ≈ 0.45–0.50) | Use η = 0.45 as default for small cups |
 | Arm drag | Small η reduction | Absorbed into empirical calibration |
 | Bearing wear | C drifts over time | Periodic empirical recalibration |
@@ -90,18 +90,18 @@ wind_speed_0.1ms  =  (count × C × 10) / window_seconds
  - **Starting threshold**: bearing friction creates a dead band (typically 0.3–1 m/s) below which the rotor does not spin. Pulse count = 0 but wind speed ≠ 0 in this range.
  - **Rotor inertia**: the rotor lags rapid wind changes. For instantaneous readings this introduces a time lag; for averaged readings it largely cancels — a natural low-pass filter. Heavier rotors have more lag.
  - **Non-linearity**: η is stable and linear over the normal operating range. At very low speeds (near starting threshold) friction dominates and the formula over-reads slightly.
- - **TODO**: add low-speed cut-off holding register — below the starting threshold report 0 m/s rather than noisy near-zero values. Typical cut-off: 0.3–0.5 m/s. Add as holding register 40005.
+ - **TODO**: add low-speed cut-off holding register — below the starting threshold report 0 m/s rather than noisy near-zero values. Typical cut-off: 0.3–0.5 m/s. Add as holding register `0x0004` (Modicon 40005 — not yet in the table above).
 
 ## Wind speed measurement
 
- - Method: frequency measurement, rising edges only, over a configurable measurement window (holding register 40003, default 1000ms).
+ - Method: frequency measurement, rising edges only, over a configurable measurement window (holding register `0x0002`, default 1000ms).
  - Matches TIM2 ETR external clock counter on PC1 — pulses counted in hardware with zero CPU overhead between measurements.
  - Rising edges only: reed relay duty cycle is not guaranteed 50%, so counting both edges would introduce speed-dependent error. Debounce RC filter is optimised for one transition direction.
  - At very low wind speeds resolution is coarse (few pulses per window), but acceptable for a weather station application.
  - Hardware is not a limiting factor: anemometer max pulse rate ~50–100Hz; TIM2 ETR handles up to ~12MHz. Reed relay is mechanically limited to ~1kHz — irrelevant.
  - Firmware structure is minimal — three concurrent elements:
    - TIM2 (ETR, PC1): autonomous hardware pulse counter, runs continuously
-   - SysTick: fires at end of each measurement window, reads and resets TIM2, scales count to 0.1 m/s via calibration factor, updates Modbus input register 30002
+   - SysTick: fires at end of each measurement window, reads and resets TIM2, scales count to 0.1 m/s via calibration factor, updates Modbus input register `0x0001`
    - USART1 ISR (PD6): Modbus frame handler
  - Clock: 48MHz internal RC (±1%) gives ±1% timing error on a 1s window — acceptable for weather sensing. No external crystal required.
  - Entire measurement logic fits well within CH32V003 16KB flash alongside Modbus framing code.
@@ -114,24 +114,40 @@ wind_speed_0.1ms  =  (count × C × 10) / window_seconds
    - Wind direction: solder jumper open = 31, bridged = 36
  - Supported function codes: FC03 (read holding registers), FC04 (read input registers), FC06 (write single register), FC16 (write multiple registers).
 
+**Addressing convention:** registers below are given as raw 0-based wire
+addresses — what actually goes in the FC03/04/06/16 PDU — with the
+30001/40001-style ("Modicon") number kept alongside for cross-reference
+against older notes and datasheets that use it. This matches the convention
+adopted by the sibling `windmeters-modbus-interface-tester` project (whose
+Register Explorer treats raw as canonical and accepts Modicon only as an
+input format). Picking one convention now, while this firmware is still
+unwritten, avoids carrying two addressing dialects once real register code
+exists.
+
+> **Note (2026-07-02):** the authoritative register map now lives in
+> `design/TDS.md` §2.7/§2.8 (extended to 12 input registers incl. status,
+> identification, and diagnostics, with per-build applicability and
+> defaults). The tables below are the original design reasoning and are
+> not maintained.
+
 ### Input Registers — FC04, read-only (sensor data)
 
-| Address | Description | Unit | Range |
-|---------|-------------|------|-------|
-| 30001 | Wind direction, instantaneous | 0.1° | 0–3599 |
-| 30002 | Wind speed, instantaneous | 0.1 m/s | 0–65535 |
-| 30003 | Wind direction, averaged | 0.1° | 0–3599 |
-| 30004 | Wind speed, averaged | 0.1 m/s | 0–65535 |
-| 30005 | Pulse count (raw, diagnostic) | pulses/interval | 0–65535 |
+| Address (raw) | Modicon # | Description | Unit | Range |
+|---|---|---|---|---|
+| `0x0000` | 30001 | Wind direction, instantaneous | 0.1° | 0–3599 |
+| `0x0001` | 30002 | Wind speed, instantaneous | 0.1 m/s | 0–65535 |
+| `0x0002` | 30003 | Wind direction, averaged | 0.1° | 0–3599 |
+| `0x0003` | 30004 | Wind speed, averaged | 0.1 m/s | 0–65535 |
+| `0x0004` | 30005 | Pulse count (raw, diagnostic) | pulses/interval | 0–65535 |
 
 ### Holding Registers — FC03/FC06/FC16, read-write (configuration)
 
-| Address | Description | Unit | Range |
-|---------|-------------|------|-------|
-| 40001 | Modbus device address | — | 1–247 |
-| 40002 | Wind direction offset (calibration) | 0.1° | 0–3599 |
-| 40003 | Measurement interval | ms | e.g. 1000 |
-| 40004 | Averaging window | seconds | default 10 |
+| Address (raw) | Modicon # | Description | Unit | Range |
+|---|---|---|---|---|
+| `0x0000` | 40001 | Modbus device address | — | 1–247 |
+| `0x0001` | 40002 | Wind direction offset (calibration) | 0.1° | 0–3599 |
+| `0x0002` | 40003 | Measurement interval | ms | e.g. 1000 |
+| `0x0003` | 40004 | Averaging window | seconds | default 10 |
 
 ### Averaging
 
@@ -143,7 +159,7 @@ wind_speed_0.1ms  =  (count × C × 10) / window_seconds
 
 ### Conventions
 
- - Wind direction 0° = North, clockwise (WMO meteorological standard). Calibration offset (40002) allows installer to align potentiometer zero to North without mechanical adjustment.
+ - Wind direction 0° = North, clockwise (WMO meteorological standard). Calibration offset (`0x0001`) allows installer to align potentiometer zero to North without mechanical adjustment.
  - All values use integer registers with implied decimal (e.g. 123 = 12.3 m/s, 1234 = 123.4°) — no floating point, compatible with standard SCADA systems.
  - Wind speed derived from pulse frequency using anemometer manufacturer calibration curve (pulses/s → m/s).
 
