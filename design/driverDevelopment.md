@@ -367,14 +367,14 @@ analyzer unreliable at 9600 → raw-edge software UART decode).
 FR-MB24 garbage-flood/oversize vectors, FR-MB03 split-frame vectors,
 RS-485 electrical rows.
 
-## 6. Phase 4 — integration (preview only)
+## 6. Phase 4 — integration
 
-Combine `common/` + the three driver libraries under the application
-super-loop architecture defined in `design/softwareArchitecture.md`
-(ISR-minimal capture, main-loop services, structural snapshot coherence),
-apply the FR-S18 init order, add the register image / averaging / status
-logic (FR-S13/14/23/30/31/33), watchdog (FR-S20), and run the full TDS test
-set. Detailed plan to be written when phase 3 exits.
+Phases 0–3 have exited; the detailed integration plan now lives in
+**`design/integrationPlan.md`** (2026-07-03): ch32v003fun migration of the
+`software/firmware/` scaffolding, in-place reuse of the driver libraries,
+six work stages (skeleton → board → register image → measurement services
+→ averaging engine → acceptance suite) with per-stage exit criteria mapped
+to TDS IDs, the per-build integration rig, and flash/RAM budget tracking.
 
 ## 7. Risks and open items
 

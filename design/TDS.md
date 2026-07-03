@@ -232,6 +232,44 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 - **NFR-ENV01 temperature range** — −25…+70 °C assumed; confirm against the deployment site. Extending to −40/+85 °C requires re-budgeting FR-S17 (HSI drift) with chamber characterisation.
 - **End-to-end direction accuracy** — FR-S11 bounds firmware accuracy (±1.0°); the total including potentiometer linearity (target ±2°) is a hardware/calibration requirement to be specified when calibration graduates from `scratchBook.md`.
 - **Sections not yet covered by this document:** hardware (pin assignment, power supply, RS-485 wiring) and the calibration-factor derivation — still in `scratchBook.md`. Promote when requirement-level precision is needed. Note: `scratchBook.md` still describes C as "compile-time define or holding register" — decided as compile-time define (FR-S25).
+- **Volatile-register coherence review (deferred decision, discussion of
+  2026-07-03).** FR-S21's all-volatile design was reviewed against the
+  question: *what is a writable register worth when its value is a
+  set-once constant that evaporates on reset?* Classification of the
+  holding map:
+  - **40001 (north offset)** — the acute case: an installation constant
+    whose default (0) is wrong for essentially every real install.
+    Volatile storage works only if a configuration-managing master
+    re-applies it after every reset (detected via 30008/FR-S34); plain
+    pollers (dataloggers, simple PLCs) silently read uncorrected bearings
+    after any brownout. Resolutions considered: (a) delete the register
+    (mechanical or master-side correction), (b) keep volatile and commit
+    explicitly to managed-master deployments, (c) make it persistent —
+    costed at ~0.5–0.6 KB code + 128 B reserved flash (two-page ping-pong
+    append log, halfword records, ~320k saves lifetime, erase deferred to
+    after the Modbus response; power-loss safe). TDS impact of (c): FR-S21
+    carve-out, new persistence requirement (commit point, atomicity,
+    endurance, corrupt-log fallback to the compile-time default), reset
+    matrix and re-apply note amendments.
+  - **40004 (low-speed cut-off)** — same criticism, quieter: a property of
+    the attached anemometer model, i.e. the sibling of C, which FR-S25
+    already made a compile-time define. Candidate to join C as a define
+    and leave the map.
+  - **40003 (averaging window)** — softer exposure: valid default, but a
+    silent reset-reversion (e.g. 600 s → 10 s) changes the statistical
+    character of the data with no visible error. At minimum a
+    documentation warning if left as is.
+  - **40002 (measurement window)** — clean: a genuine operational knob
+    with a universally valid default; exactly what volatile registers are
+    for.
+  - **Design rule distilled** (the address already followed it in v0.6 by
+    moving to hardware): *runtime-writable volatile registers are only
+    for operational knobs with universally valid defaults; constants of
+    the installation (offset), the attached sensor (C, cut-off), or the
+    device identity (address) belong in hardware, compile-time defines,
+    or persistent storage.* **Decision deliberately deferred — everything
+    stays as specified (v0.6) for now.** Revisit before field deployment
+    or when the master-side architecture is settled.
 
 ---
 
