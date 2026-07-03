@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "saleae": {
+      "type": "http",
+      "url": "http://127.0.0.1:10530/mcp"
+    }
+  }
+}

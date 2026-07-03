@@ -1,0 +1,4 @@
+# Python virtual environments (recreate per software/hil/README notes)
+.venv/
+.venv-m2k/
+__pycache__/
