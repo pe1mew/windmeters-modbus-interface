@@ -270,6 +270,16 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
     or persistent storage.* **Decision deliberately deferred — everything
     stays as specified (v0.6) for now.** Revisit before field deployment
     or when the master-side architecture is settled.
+- **Combined-sensor firmware variant (deferred decision, 2026-07-03).**
+  Feasibility assessed after integration stage E: pins/flash/RAM/timing
+  all fit comfortably (details in `design/integrationPlan.md` §10). Spec
+  impact if adopted: FR-S32 build type 0x03; FR-S03 address pair for the
+  combined variant; 30005's per-build meaning conflicts — direction raw
+  view moves to a new register (30013) or one diagnostic is dropped;
+  FR-S01/S02/FR-MB27 wording assumes two variants. Open strategic
+  question: whether the combined build eventually replaces the two
+  single-sensor variants (fault machinery already handles absent
+  sensors). No change to v0.6 for now.
 
 ---
 

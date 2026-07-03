@@ -164,7 +164,7 @@ rows); grounds common.
 
 | Build | Stimulus |
 |---|---|
-| wind_speed | M2K **DIO1** → PC1 (pulse trains — bus on DIO0 runs simultaneously) |
+| wind_speed | M2K **W2 (AWG)** → PC1 — pulse trains run independently of the DIO0 bus master (the digital engine's single pattern buffer cannot stream pulses while transmitting frames; established in stage D) |
 | wind_direction | divider on PA2 for accuracy rows; M2K W1 for functional rows; **V+ powers the DUT rail** for the VDD sweep (LinkE 3V3 lead lifted for that row) |
 
 ## 6. Budgets
@@ -239,3 +239,49 @@ MAX3485 or USB-RS485 master).
 | Empirical calibration: C from reference-anemometer comparison; pot end-to-end accuracy (±2° target) | scratchBook calibration, TDS §5 |
 | Window timing on the PCB (supply/thermal conditions differ from the LinkE rig) | FR-S17 |
 | NFR-ENV01 chamber runs when available: 10 k frames + window timing at range extremes | NFR-ENV01, FR-S17 |
+
+## 10. Next-step candidate: combined-sensor firmware variant
+
+Assessed 2026-07-03 (after stage E): **one build serving both sensors is
+comfortably feasible** — the design has been converging on it without
+saying so.
+
+**Resources (all green):**
+- *Pins*: PA2 (ADC) and PC1 (TIM2 ETR) are separate pins, both already in
+  the product pin map — the PCB carries both sensor connectors. No
+  conflict exists.
+- *Flash*: combined ≈ 7 KB (direction build 6056 B + ~1 KB of
+  speed-specific code) against the 14 336 B ceiling.
+- *RAM*: ≈ 1.2 KB (shared mb/regs + both 256 B averaging rings) against
+  1 792 B.
+- *Timing*: a non-issue by construction — TIM2 counts pulses in hardware
+  while the CPU runs the 224 µs ADC burst every 100 ms (0.2 % CPU);
+  worst loop pass ~300 µs vs 1 042 µs per Modbus byte; latency stays
+  ~5 ms.
+
+**The two real conflicts are spec, not silicon:**
+1. **Register 30005** is per-build by design (pulse count *or* raw ADC) —
+   a combined build needs both: move the direction raw view to a new
+   register (30013; the map has room) or drop one diagnostic.
+2. **Device identity**: build type needs 0x03 (FR-S32) and FR-S03 needs
+   an address pair for the combined variant (e.g. open = 32,
+   bridged = 37) — one slave now serves both quantities.
+
+**Code changes (modest, mechanical, ~1 day + suite re-runs):**
+`meas_speed.c`/`meas_dir.c` define the same `meas_init`/`meas_service`
+symbols → rename per sensor and call both; `avg.c`'s ring state is shared
+globals under ifdefs → restructure into two instances; `regs.c`'s
+per-build zeros become all-live. Status bits stay coherent (both
+quantities share the 40002 window boundaries).
+
+**Strategic question:** once a combined build exists, it could become the
+ONLY build — the fault machinery already handles absent sensors
+gracefully (disconnected vane → 65535 + status bit 2; missing anemometer
+→ zero counts + climbing pulse-age), collapsing the SKU and test matrix
+to one. Cost: TDS rework (FR-S01/S02/S03/S32/FR-MB27 all assume two
+variants) and less self-documenting addressing.
+
+**Recommendation:** introduce it as a *third* variant first
+(`wind_combined`, build type 0x03, direction-raw at 30013); retire the
+single-sensor variants only after the combined one has passed the full
+acceptance suite. **Decision deferred — TDS impact tracked in TDS §5.**
