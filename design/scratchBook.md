@@ -176,10 +176,20 @@ In order of preference:
 ## Modbus transceiver
 
  - MAX3485, SOIC-8
+ - Interface to MCU (verified compatible with the remap-switching firmware
+   discipline, 2026-07-03): DI + RO tied together on net `MB-TX/RX` → PD6;
+   DE + R̄Ē tied together on net `MB-RE/DE` → PC2. RO goes high-Z whenever
+   DE is asserted, so TX-phase drive on the shared node is contention-free.
+ - **10 kΩ pull-down on `MB-RE/DE`** (added 2026-07-03): holds the
+   transceiver in receive mode while the MCU is in reset and during
+   WCH-LinkE flashing — without it, a floating DE can jam the shared bus.
+ - Fail-safe bias verified: R2 20k pulls A to 3V3, R3 20k pulls B to GND
+   (idle = mark), alongside the 120Ω terminator behind solder jumper JP1
+   and the SM712 TVS on A/B.
 
 ## CH32V003J4M6 pin assignment (SOIC-8)
 
-The SOP-8 bonds out only 6 GPIO. Note: none of the USART1 remap combos place both TX and RX on this package, so Modbus uses the USART in **single-wire half-duplex** mode (HDSEL) on PD6, with a separate GPIO for the RS-485 driver-enable.
+The SOP-8 bonds out only 6 GPIO. Note: none of the USART1 remap combos place both TX and RX on this package. ~~So Modbus uses the USART in **single-wire half-duplex** mode (HDSEL) on PD6~~ **Superseded 2026-07-03 (phase-3 bench): HDSEL intermittently swallows the first received byte after bus idle. The driver instead uses a remap-switching discipline — RX is natively on PD6 in the default map; TX is remapped onto PD6 (partial remap 2) only while transmitting the response. See `software/drivers/modbus_rtu/README.md`.** A separate GPIO drives the RS-485 driver-enable.
 
 | Pin | Name | Assignment | Function used |
 |-----|------|------------|---------------|

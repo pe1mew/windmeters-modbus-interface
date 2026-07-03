@@ -14,28 +14,34 @@ Target: CH32V003J4M6 — RV32EC, one core, 48 MHz HSI, 16 KB flash, 2 KB SRAM.
 One firmware source tree, two builds (wind speed / wind direction, FR-S01).
 
 Given these constraints and the TDS requirements, the architecture is
-**interrupt-minimal: two tiny ISRs that only capture events, and a
-cooperative super-loop that does all real work.** No RTOS** — it would cost
-more RAM than the application uses and buys nothing here.
+**zero-interrupt: a cooperative super-loop polls everything.** No RTOS —
+it would cost more RAM than the application uses and buys nothing here.
+
+> **Amendment 2026-07-03 (phase-3 bench):** the original design used a
+> USART RX ISR + SysTick ISR. On the bench, the RXNE ISR corrupted ~1/3 of
+> received frames (missing/scrambled leading bytes, no USART error flags,
+> wire verified pristine) — symptoms consistent with interrupt
+> prologue/state corruption on this RV32EC toolchain path. Polled RX fixed
+> it completely (26/26 matrix + 40/40 endurance). Since the main loop
+> cycles in ~1 µs versus 1042 µs per byte at 9600 baud, polling is
+> provably lossless and interrupts buy nothing. **Do not introduce ISRs in
+> this project without first root-causing that failure** (suspect
+> `__attribute__((interrupt))` code generation with ch32v003fun).
 
 ## 2. Structure
 
 ```
-┌─ ISRs (capture only, microseconds) ─────────────────────────┐
-│ USART1 RX ISR: store byte in buffer, stamp last_rx_tick,    │
-│                clear ORE/FE/NE, drop bytes while TX active  │
-│ SysTick (1ms): ms_tick++                                    │
-└─────────────────────────────────────────────────────────────┘
-                    │ (volatile, SPSC)
-┌─ main loop (all processing, run-to-completion) ─────────────┐
+┌─ main loop (everything, run-to-completion, no ISRs) ────────┐
 │ for(;;) {                                                   │
-│   modbus_service();      // gap detect, parse, respond      │
+│   modbus_service();      // poll RXNE/errors, stamp ticks,  │
+│                          // gap detect, parse, respond      │
 │   measurement_service(); // window expiry, sample, publish  │
 │   diagnostics_service(); // uptime, counters                │
 │   IWDG_refresh();        // only here (FR-S20)              │
 │ }                                                           │
 └─────────────────────────────────────────────────────────────┘
-   TIM2 (speed build): pure hardware counter, no ISR at all
+   TIM2 (speed build): pure hardware counter — counts with zero code
+   Timing: raw SysTick->CNT arithmetic (HCLK; FUNCONF_SYSTICK_USE_HCLK 1)
 ```
 
 Initialization before the loop follows the FR-S18 order strictly:
@@ -77,15 +83,10 @@ time), resets, computes, publishes.
 
 ## 4. Shared state — the complete list
 
-| Data | Writer | Reader | Protection |
-|---|---|---|---|
-| RX buffer (256 B, FR-MB24) + head index | RX ISR | main loop | SPSC ring; index is a 32-bit aligned store = atomic on RV32 |
-| `last_rx_tick`, `ms_tick` (u32) | ISR | main loop | single `lw` is atomic |
-| `transmitting` flag | main loop | RX ISR | single byte, one writer |
-| Register image, averaging blocks | main loop | main loop | none needed |
-
-That is the entire concurrency surface — three variables and one ring
-buffer.
+With zero interrupts there is **no concurrency surface at all**: every
+variable has exactly one execution context. The RX buffer, tick stamps,
+register image, and averaging blocks are all plain main-loop state.
+FR-S24's snapshot coherence is absolute by construction.
 
 ## 5. Sizing sanity check
 

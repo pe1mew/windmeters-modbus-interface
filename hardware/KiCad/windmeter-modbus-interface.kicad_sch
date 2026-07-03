@@ -3317,6 +3317,12 @@
 		(uuid "042cf4a2-7a40-4b81-a47c-c66d1beff31c")
 	)
 	(junction
+		(at 54.61 90.17)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "0ed5deae-d8cc-4a9c-8d2c-6939dcd9a185")
+	)
+	(junction
 		(at 91.44 109.22)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3363,6 +3369,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "48987927-711d-4fcb-b93c-6f1d883afe05")
+	)
+	(junction
+		(at 54.61 109.22)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "4b9676a3-ead8-4643-8339-80fe246c408e")
 	)
 	(junction
 		(at 59.69 87.63)
@@ -3589,6 +3601,16 @@
 			(type default)
 		)
 		(uuid "1029e1ed-e72e-4b7c-a135-4a56e4b32b22")
+	)
+	(wire
+		(pts
+			(xy 54.61 90.17) (xy 62.23 90.17)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "111beba9-85d7-4e3b-99ed-a35cdeeb8f81")
 	)
 	(wire
 		(pts
@@ -4282,7 +4304,7 @@
 	)
 	(wire
 		(pts
-			(xy 45.72 90.17) (xy 62.23 90.17)
+			(xy 45.72 90.17) (xy 54.61 90.17)
 		)
 		(stroke
 			(width 0)
@@ -4352,6 +4374,16 @@
 	)
 	(wire
 		(pts
+			(xy 54.61 90.17) (xy 54.61 99.06)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9171e6ea-f5c0-4e3c-a013-d8e7fef0785c")
+	)
+	(wire
+		(pts
 			(xy 64.77 38.1) (xy 64.77 54.61)
 		)
 		(stroke
@@ -4409,6 +4441,26 @@
 			(type default)
 		)
 		(uuid "99650067-f37b-46d0-8084-22fd4e67336d")
+	)
+	(wire
+		(pts
+			(xy 54.61 106.68) (xy 54.61 109.22)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9a986539-d6c2-466f-8169-b2d1209a835f")
+	)
+	(wire
+		(pts
+			(xy 54.61 109.22) (xy 64.77 109.22)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9d692139-9966-48f5-9da2-e65221e1fa38")
 	)
 	(wire
 		(pts
@@ -4882,7 +4934,7 @@
 	)
 	(wire
 		(pts
-			(xy 45.72 109.22) (xy 64.77 109.22)
+			(xy 45.72 109.22) (xy 54.61 109.22)
 		)
 		(stroke
 			(width 0)
@@ -7759,6 +7811,88 @@
 			(project "windmeter-modbus-interface"
 				(path "/7e9d7b84-ea76-433c-8a90-337ecd1345cc"
 					(reference "JP5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 54.61 102.87 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c8240ad1-a036-4a98-9754-cf60dfc183ab")
+		(property "Reference" "R7"
+			(at 57.15 101.5999 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "10k"
+			(at 57.15 104.1399 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder"
+			(at 52.832 102.87 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 54.61 102.87 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 54.61 102.87 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "1553da1b-eec4-4817-a3d1-1cdad8e100d5")
+		)
+		(pin "2"
+			(uuid "9f0d19f6-32a9-4d79-8aec-cd1d9331063a")
+		)
+		(instances
+			(project "windmeter-modbus-interface"
+				(path "/7e9d7b84-ea76-433c-8a90-337ecd1345cc"
+					(reference "R7")
 					(unit 1)
 				)
 			)

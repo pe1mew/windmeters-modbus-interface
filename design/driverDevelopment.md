@@ -352,9 +352,20 @@ application-side.
 | Response latency | FR-MB20/21 | 1000-request timing histogram from capture |
 | Out-of-range / atomic FC16 writes | FR-MB19/22 | write + read-back sequences |
 
-**Exit criteria:** every row green on the TTL rig; DE timing re-verified on
-the MAX3485 rig; latency histogram meets 95%/15 ms; results archived as the
-seed of the NFR-TST01 regression suite.
+**Exit criteria: core MET on the TTL rig (2026-07-03)** — 26/26 matrix
+vectors (FR-MB02/05/06/08–15/19/22/25/28/30 + FR-S31 hook) plus 40/40
+endurance, latency median/worst 5.2 ms (FR-MB21 ≤15 ms typical). Two
+findings forced design changes, both recorded in
+`software/drivers/modbus_rtu/README.md` and `design/softwareArchitecture.md`:
+HDSEL intermittently swallows the first byte after idle → replaced by
+remap-switching line discipline (RX natively on PD6, TX remapped only
+during response); the RXNE ISR corrupted ~1/3 of frames → polled RX,
+zero-interrupt architecture. Master-side bench lessons live in
+`software/hil/README.md` (M2K open-drain mode, phantom start bits, Saleae
+analyzer unreliable at 9600 → raw-edge software UART decode).
+**Deferred to the MAX3485 rig / acceptance:** FR-MB04 DE-timing asserts,
+FR-MB24 garbage-flood/oversize vectors, FR-MB03 split-frame vectors,
+RS-485 electrical rows.
 
 ## 6. Phase 4 — integration (preview only)
 

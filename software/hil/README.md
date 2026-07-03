@@ -35,6 +35,7 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
 | `saleae_serial.py` | Shared module: UART capture + timestamped line decode | library |
 | `ws_check.py` | Wind speed driver phase-1 matrix (counts, duty, timing, saturation) | PASS 2026-07-03, 9/9 |
 | `wd_check.py` | Wind direction phase-2 matrix (AWG-based; superseded for accuracy rows by the divider method — see README notes) | superseded 2026-07-03 |
+| `mb_check.py` | Modbus RTU phase-3 matrix (26 vectors, TDS §2) + timing; M2K as open-drain bit-banged master | PASS 2026-07-03, 26/26 + 40/40 endurance |
 
 ## Bench wiring notes
 
@@ -93,6 +94,27 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
 - Classic Logic16 rejects `digitalThresholdVolts` values — omit it (default
   range suits 3.3 V logic).
 
+## Modbus TTL-rig lessons (phase 3, learned the hard way)
+
+- **The Logic 2 Async Serial analyzer is unreliable at 9600 baud** on this
+  setup — byte values scramble while the raw edges are perfect. Binary
+  protocols use `saleae_serial.uart_decode()` (software UART over the raw
+  edge export) instead. Also: `decode_events(..., sync_to_newline=False)`
+  for binary — the text-protocol first-LF rule silently discards
+  LF-free captures.
+- **M2K as shared-wire master: use open-drain output mode**
+  (`setOutputMode(DIO_OPENDRAIN)` + the external pull-up), permanently
+  enabled. The tristate dance (direction flips per transaction) sprays
+  break glitches and phantom start bits; `push()` starts can still glitch —
+  keep a ~10 ms driven-high lead-in so any phantom byte orphans behind a
+  t3.5 gap.
+- **A master must release the wire immediately after its last stop bit** —
+  the DUT replies ~5 ms later; holding the line driven collides with the
+  reply.
+- DUT-side registers exposing error counters and a last-bad-frame stash
+  are worth their flash cost many times over: the stash is what proved
+  "first byte swallowed" and later "ISR corruption" beyond argument.
+
 ## DUT-side UART gotchas (learned on the bench)
 
 - **HDSEL idles the line floating**: in half-duplex mode the USART releases
@@ -100,6 +122,14 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
   frame decodes with framing errors. `common/debug_uart` therefore runs
   plain TX (idle mark driven). Continuous streams mask this — it only bites
   bursty output.
+- **HDSEL also intermittently swallows the first RX byte after idle**
+  (~35%, no error flags) — the Modbus driver abandoned HDSEL entirely for
+  a remap-switching discipline (RX on PD6 via the default map; TX remapped
+  in only for the response). See `software/drivers/modbus_rtu/README.md`.
+- **Interrupts are suspect on this toolchain path**: an RXNE ISR corrupted
+  ~1/3 of received frames with no USART error flags; polled RX fixed it
+  outright. The architecture is now zero-ISR
+  (`design/softwareArchitecture.md`) — root-cause before ever adding one.
 - **ch32v003fun SysTick default is HCLK/8**: define
   `FUNCONF_SYSTICK_USE_HCLK 1` when pacing with raw `SysTick->CNT` math, or
   everything runs 8× slow.
