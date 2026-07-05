@@ -10982,7 +10982,7 @@
 		(layer "Edge.Cuts")
 		(uuid "00d19a4a-14e5-483e-a93f-d64ebcc2b997")
 	)
-	(gr_text "modbus-termination, \nRS458 pair selection &\nAddress at back of PCB."
+	(gr_text "modbus-termination, \nRS485 pair selection &\nAddress at back of PCB."
 		(at 155.194 63.881 0)
 		(layer "F.SilkS" knockout)
 		(uuid "1145ddd4-cac4-471b-8b0f-efb0cfa3f5fc")
@@ -11067,7 +11067,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "MODBus-RS458\nPort-2"
+	(gr_text "Modbus-RS485\nPort-2"
 		(at 207.518 132.461 0)
 		(layer "F.SilkS")
 		(uuid "a9435bfb-ef76-4939-b435-bc566f1b9bbc")
@@ -11080,7 +11080,7 @@
 			(justify left)
 		)
 	)
-	(gr_text "MODBus-RS458\nPort-1"
+	(gr_text "Modbus-RS485\nPort-1"
 		(at 168.402 132.461 0)
 		(layer "F.SilkS")
 		(uuid "bfe30af6-3128-4a11-ab03-c49470aabe9b")
@@ -11119,7 +11119,7 @@
 			(justify right)
 		)
 	)
-	(gr_text "Wind-speed/-direction to\nmodbus interface"
+	(gr_text "Wind-speed/-direction to\nModbus RTU RS-485 interface"
 		(at 210.947 128.651 90)
 		(layer "F.SilkS")
 		(uuid "01c15411-dfd1-44e0-a4c4-c434d64f3d37")
