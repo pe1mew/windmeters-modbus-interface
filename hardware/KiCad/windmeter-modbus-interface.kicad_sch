@@ -3483,6 +3483,12 @@
 		(uuid "9dd70b14-2d6b-4603-8576-889cc9b0bd57")
 	)
 	(junction
+		(at 111.76 181.61)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "b45417a3-b183-4595-8ed7-c40613519dce")
+	)
+	(junction
 		(at 222.25 104.14)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -4758,6 +4764,16 @@
 	)
 	(wire
 		(pts
+			(xy 111.76 181.61) (xy 123.19 181.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bfc29d04-1580-4c58-9612-b8b536600b09")
+	)
+	(wire
+		(pts
 			(xy 176.53 45.72) (xy 187.96 45.72)
 		)
 		(stroke
@@ -5405,6 +5421,16 @@
 			(justify left bottom)
 		)
 		(uuid "883584b9-5809-4d26-b9d4-45e3ca2bfb88")
+	)
+	(label "GND"
+		(at 121.92 181.61 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "8acca915-95bb-4fb7-849d-914cc5bef999")
 	)
 	(label "+24V"
 		(at 46.99 161.29 0)
@@ -7525,7 +7551,7 @@
 				)
 			)
 		)
-		(property "Footprint" "my-KiCad-library:DB207"
+		(property "Footprint" "my-KiCad-library:DB207-DIP-4"
 			(at 42.164 139.7 0)
 			(hide yes)
 			(show_name no)

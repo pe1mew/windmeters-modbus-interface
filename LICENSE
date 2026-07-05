@@ -1,0 +1,65 @@
+Windmeters Modbus Interface
+Copyright (c) 2026 Remko Welling
+
+=============================================================================
+SOFTWARE LICENSE — Source-Available Non-Commercial License
+=============================================================================
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software (the "Software"), to use and modify the Software for
+personal and non-commercial purposes, subject to the following conditions:
+
+1. NON-COMMERCIAL USE ONLY
+   The Software may not be used, in whole or in part, for any commercial
+   purpose. Commercial purposes include, but are not limited to, any use
+   that generates revenue or is intended for profit.
+
+2. NO REDISTRIBUTION
+   You may not distribute, publish, sublicense, sell, or otherwise transfer
+   the Software or any modified version of it, in source or binary form,
+   to any third party.
+
+3. ATTRIBUTION
+   All copyright notices and this licence notice must be retained in any
+   copy of the Software made for personal use.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+=============================================================================
+DOCUMENTATION AND IMAGES LICENSE — CC BY-NC-ND 4.0
+=============================================================================
+
+The design documents, documentation, and images authored for this repository
+are licensed under the Creative Commons
+Attribution-NonCommercial-NoDerivatives 4.0 International License
+(CC BY-NC-ND 4.0).
+
+You are free to:
+  Share — copy and redistribute the material in any medium or format
+          for non-commercial purposes only.
+
+Under the following terms:
+  Attribution    — You must give appropriate credit, provide a link to the
+                   license, and indicate if changes were made.
+  NonCommercial  — You may not use the material for commercial purposes.
+  NoDerivatives  — If you remix, transform, or build upon the material,
+                   you may not distribute the modified material.
+
+Full license text: https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode
+
+=============================================================================
+THIRD-PARTY MATERIAL
+=============================================================================
+
+Third-party datasheets, schematics, and reference material in the
+documentation/ and hardware/Documentation/ directories (WCH, Hi-Link,
+Rectron, Kradex, and other component manufacturers) remain the property of
+their respective owners and are included for reference only. The KiCad
+symbol/footprint libraries included as git submodules carry their own
+licenses. The licenses above do not apply to them.
