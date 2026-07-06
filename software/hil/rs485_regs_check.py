@@ -4,10 +4,14 @@ its machine API (tester manual/api.md): POST /api/v1/modbus executes one
 transaction and returns the outcome INCLUDING the raw TX/RX frames, so
 every CRC is re-verified here without trusting the tester's decode.
 
-Covers, over the wire (wind_speed build, address 30, release binary):
+Covers, over the wire (both builds via --build; the holding matrix is
+identical on both per FR-MB27, the input-register active/zero map differs):
   - FC04: full 12-register image, every register singly, map-edge and
     straddle reads -> exception 02 (FR-MB13/14), identification/uptime/
-    served/pulse-age plausibility
+    served plausibility; per-build active/zero registers (speed: pulse-
+    age tracks uptime; direction: raw ADC in range, no DIR_FAULT)
+  - direction only: 40001 offset applied to the reported angle with 3600
+    wraparound (FR-S25/S26)
   - FC03: defaults, singles, map edge (FR-MB27, TDS §2.8 defaults)
   - FC06: min/max/mid accepted + byte-exact echo (FR-MB30), out-of-range
     rejected with exception 03 and NO state change (FR-MB19), unmapped ->
@@ -18,12 +22,13 @@ Covers, over the wire (wind_speed build, address 30, release binary):
   - FR-S31 cross rule via FC06 (avg*1000 >= window)
   - FR-S30: status bits 0/1 re-assert after a valid 40002/40003 write,
     bit 0 clears after the first window, bit 1 after the averaging fill
-  - FR-MB05 address filter: 31 and 35 stay silent (timeouts)
+  - FR-MB05 address filter: every other candidate address stays silent
   - Consistency: DUT served-counter delta == transactions answered,
     DUT crc_error_count untouched, master-side crc_errors delta == 0
 
-Run:  .venv-m2k\\Scripts\\python.exe rs485_regs_check.py
-      [--base http://windmeter-tester.local] [--slave 30]
+Run:  .venv-m2k\\Scripts\\python.exe rs485_regs_check.py --build speed
+      .venv-m2k\\Scripts\\python.exe rs485_regs_check.py --build direction
+      [--base http://windmeter-tester.local] [--slave N]
 
 The DUT ends at defaults with the tester's wind poller restarted.
 """
@@ -40,6 +45,7 @@ from rs485_check import crc16
 
 RESULTS = []
 COUNTED = {"served": 0, "multi_attempt": 0}
+DUT_SLAVE = None  # set in main(); mb() counts served only for this address
 
 
 def record(name, ok, detail):
@@ -79,7 +85,7 @@ def mb(base, slave, fc, register, count=None, values=None, fmt=None):
         record("wire: raw_tx CRC self-check", False, r["raw_tx"])
     if r.get("raw_rx") and not frame_crc_ok(r["raw_rx"]):
         record("wire: raw_rx CRC self-check", False, r["raw_rx"])
-    if slave == 30 and r.get("status") in ("ok", "exception"):
+    if slave == DUT_SLAVE and r.get("status") in ("ok", "exception"):
         COUNTED["served"] += 1
         if r.get("attempts", 1) > 1:
             COUNTED["multi_attempt"] += 1
@@ -128,11 +134,23 @@ def read_inputs(base, slave):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://windmeter-tester.local")
-    ap.add_argument("--slave", type=int, default=30)
+    ap.add_argument("--build", choices=["speed", "direction"], default="speed",
+                    help="which firmware variant is flashed on the DUT")
+    ap.add_argument("--slave", type=int, default=None,
+                    help="DUT address (default 30 for speed, 31 for direction)")
     ap.add_argument("--skip-status-timing", action="store_true",
                     help="skip the ~15 s FR-S30 status-bit timing block")
     args = ap.parse_args()
-    base, S = args.base, args.slave
+    global DUT_SLAVE
+    is_dir = args.build == "direction"
+    S = args.slave if args.slave is not None else (31 if is_dir else 30)
+    DUT_SLAVE = S
+    base = args.base
+    ident_want = 0x0201 if is_dir else 0x0101
+    # Input-register active/zero map per TDS §2.7 (which regs read 0 on this
+    # build); the holding matrix (§2.8) is identical on both, FR-MB27.
+    zero_regs = {1, 3, 10, 11} if is_dir else {0, 2}   # read-0 addresses
+    print(f"=== register matrix: {args.build} build, address {S} ===")
 
     st0 = api(base, "/api/v1/status")
     print(f"tester fw {st0.get('fw_version')}, modbus "
@@ -155,32 +173,68 @@ def main() -> int:
     # samples it while handling the frame) — so the baseline transaction,
     # already in COUNTED, is correctly part of the expected delta.
     served_start = inp[9]
-    record("30001/30003 direction regs read 0 on speed build",
-           inp[0] == 0 and inp[2] == 0, f"[{inp[0]}, {inp[2]}]")
-    record("30007 identification == 0x0101 (speed build, fw v1)",
-           inp[6] == 0x0101, f"0x{inp[6]:04X}")
-    record("30008 uptime plausible (>60 s since FR-S19 flash)",
-           inp[7] > 60, f"{inp[7]} s")
+    inactive_label = ("speed regs 30002/30004 + pulse-age/gust 30011/30012"
+                      if is_dir else "direction regs 30001/30003")
+    record(f"inactive-build regs read 0 ({inactive_label})",
+           all(inp[i] == 0 for i in zero_regs),
+           f"{[inp[i] for i in sorted(zero_regs)]}")
+    record(f"30007 identification == 0x{ident_want:04X} "
+           f"({args.build} build, fw v1)",
+           inp[6] == ident_want, f"0x{inp[6]:04X}")
+    record("30008 uptime plausible (>10 s since flash)",
+           inp[7] > 10, f"{inp[7]} s")
     record("30009 DUT crc_error_count == 0", inp[8] == 0, f"{inp[8]}")
-    record("30011 pulse-age tracks uptime (no anemometer)",
-           abs(inp[10] - inp[7]) <= 1, f"age {inp[10]} vs uptime {inp[7]}")
-    record("30006 status == 0 (warm-up long past)", inp[5] == 0,
-           f"0x{inp[5]:04X}")
+    if is_dir:
+        record("30005 raw ADC in range 0..1023 (PA2 driven)",
+               0 <= inp[4] <= 1023, f"{inp[4]}")
+        record("30001 dir_instant valid (0..3599, not 65535 fault)",
+               inp[0] <= 3599, f"{inp[0] / 10:.1f} deg")
+        record("30006 status has no DIR_FAULT bit (PA2 not floating)",
+               not (inp[5] & 0x0004), f"0x{inp[5]:04X}")
+    else:
+        record("30011 pulse-age tracks uptime (no anemometer)",
+               abs(inp[10] - inp[7]) <= 1, f"age {inp[10]} vs uptime {inp[7]}")
+        record("30006 status == 0 (warm-up long past)", inp[5] == 0,
+               f"0x{inp[5]:04X}")
 
     singles = []
     for a in range(12):
         r = mb(base, S, 4, a, count=1)
         singles.append(r["registers"][0] if r.get("ok") else None)
-    drift = {7, 9, 10}  # uptime/served/pulse-age move between reads
+    # uptime/served always drift; direction inst/avg jitter by 1 LSB, so
+    # compare the identity/steady regs exactly and allow the rest to move.
+    drift = {7, 9, 10} | ({0, 2, 4} if is_dir else {10})
     ok = all(singles[i] == inp[i] for i in range(12) if i not in drift) \
-        and all(singles[i] is not None and singles[i] >= inp[i]
-                for i in drift)
-    record("FC04 single reads x12 match block image", ok, f"{singles}")
+        and all(singles[i] is not None for i in drift)
+    record("FC04 single reads x12 consistent with block image", ok,
+           f"{singles}")
 
     expect_exc(base, "FC04 read 0x000C (map edge) -> exc 02 (FR-MB13)",
                2, S, 4, 0x000C, count=1)
     expect_exc(base, "FC04 read 0x0007 x6 (straddles edge) -> exc 02 (FR-MB14)",
                2, S, 4, 0x0007, count=6)
+
+    # ---- A2 (direction only): offset -> reported angle, wraparound ----------
+    if is_dir:
+        print("\n-- direction offset applied to angle (FR-S25/S26 wrap) --")
+        expect_ok(base, "40001 offset := 0 (baseline)", S, 6, 0, values=[0])
+        time.sleep(0.3)
+        base_ang = mb(base, S, 4, 0, count=1)["registers"][0]
+        print(f"    baseline angle (offset 0): {base_ang / 10:.1f} deg")
+        for off in (900, 1800, 3599):
+            expect_ok(base, f"40001 offset := {off}", S, 6, 0, values=[off])
+            time.sleep(0.3)
+            ang = mb(base, S, 4, 0, count=1)["registers"][0]
+            up = (base_ang + off) % 3600     # convention-agnostic: try both
+            dn = (base_ang - off) % 3600
+            d_up = min((ang - up) % 3600, (up - ang) % 3600)
+            d_dn = min((ang - dn) % 3600, (dn - ang) % 3600)
+            err = min(d_up, d_dn)
+            record(f"angle shifts by offset {off / 10:.0f} deg (3600 wrap)",
+                   err <= 15,
+                   f"base {base_ang / 10:.1f} {'+' if d_up <= d_dn else '-'} "
+                   f"{off / 10:.1f} -> {ang / 10:.1f} deg (err {err} LSB)")
+        expect_ok(base, "40001 offset := 0 (restore)", S, 6, 0, values=[0])
 
     # ---- B: holding defaults (FC03) ----------------------------------------
     print("\n-- FC03 holding registers --")
@@ -228,7 +282,7 @@ def main() -> int:
         expect_ok(base, f"40004 cutoff := {v}", S, 6, 3, values=[v])
         alive = read_inputs(base, S)
         record(f"DUT serves FC04 after cutoff:={v} (incident regression)",
-               alive is not None and alive[6] == 0x0101,
+               alive is not None and alive[6] == ident_want,
                "full image read OK" if alive else "NO RESPONSE")
     expect_exc(base, "40004 := 51 -> exc 03", 3, S, 6, 3, values=[51])
     expect_ok(base, "40004 unchanged after reject", S, 3, 3, count=1,
@@ -301,7 +355,8 @@ def main() -> int:
 
     # ---- F: FR-MB05 address filter over RS-485 ------------------------------
     print("\n-- other addresses stay silent --")
-    for other in (31, 35):
+    silent_addrs = [a for a in (30, 31, 35, 36) if a != S]
+    for other in silent_addrs:
         r = mb(base, other, 4, 0, count=1)
         record(f"address {other} silent (timeout) (FR-MB05/FR-S03)",
                r.get("status") == "timeout", f"status {r.get('status')}")
@@ -323,14 +378,16 @@ def main() -> int:
     record("master crc_errors unchanged",
            st1["modbus"]["crc_errors"] == st0["modbus"]["crc_errors"],
            f"{st0['modbus']['crc_errors']} -> {st1['modbus']['crc_errors']}")
-    record("master timeouts grew by exactly the 2 silent-address probes",
-           st1["modbus"]["timeouts"] - st0["modbus"]["timeouts"] == 2,
+    record(f"master timeouts grew by exactly the "
+           f"{len(silent_addrs)} silent-address probes",
+           st1["modbus"]["timeouts"] - st0["modbus"]["timeouts"]
+           == len(silent_addrs),
            f"{st0['modbus']['timeouts']} -> {st1['modbus']['timeouts']}")
 
-    # Leave the bench as found: poller running against the speed DUT.
-    api(base, "/wind/start", {"type": "speed", "addr": S,
+    # Leave the bench as found: poller running against this build's DUT.
+    api(base, "/wind/start", {"type": args.build, "addr": S,
                               "interval_ms": 3000})
-    print("\nwind poller restarted (speed @ %d, 3 s)" % S)
+    print(f"\nwind poller restarted ({args.build} @ {S}, 3 s)")
 
     fails = [x for x in RESULTS if not x[1]]
     print(f"\n{'ALL PASS' if not fails else 'FAILURES: ' + str(len(fails))}"

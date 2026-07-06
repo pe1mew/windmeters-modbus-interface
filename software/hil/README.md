@@ -36,6 +36,9 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
 | `ws_check.py` | Wind speed driver phase-1 matrix (counts, duty, timing, saturation) | PASS 2026-07-03, 9/9 |
 | `wd_check.py` | Wind direction phase-2 matrix (AWG-based; superseded for accuracy rows by the divider method — see README notes) | superseded 2026-07-03 |
 | `mb_check.py` | Modbus RTU phase-3 matrix (26 vectors, TDS §2) + timing; M2K as open-drain bit-banged master | PASS 2026-07-03, 26/26 + 40/40 endurance |
+| `rs485_check.py` | MAX3485-rig passive judge of live master traffic: DE timing, storm, idle-bias, latency, wire CRC both directions | PASS 2026-07-06, 8/8 (117 transactions) |
+| `rs485_regs_check.py` | Full TDS §2.7/§2.8 register read/write matrix over RS-485, driven through the tester's machine API | PASS 2026-07-06, 62/62 (speed build) |
+| `rs485_raw_check.py` | Byte-exact §9.1 vectors via second-MAX3485 raw master: split frames, garbage floods, off-baud, 1000-request latency histogram | PASS 2026-07-06, all groups |
 
 ## Bench wiring notes
 
@@ -47,6 +50,37 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
   DUT).
 - Keep M2K AWG outputs configured 0–3.3 V near the DUT (hardware can swing
   ±5 V — beyond CH32V003 absolute maximums).
+- **MAX3485 rig (2026-07-06)**: DUT transceiver DI+RO → PD6 (Saleae ch8 on
+  that node), DE+R̄Ē → PC2 (ch15) with the 10 k pull-down; bus A/B → M2K
+  scope 1+/2+ for the analog wire view. **Second MAX3485 as raw master**:
+  M2K DIO0 → DI, DIO1 → DE+R̄Ē, **V+ → VCC (3.3 V)** — every raw-master
+  script must enable V+ itself (`ps.enableChannel(0, True)` +
+  `pushChannel(0, 3.3)`): an unpowered MAX3485 sits inert and the static
+  DE/DI test (drive space, drive mark, release) is the 10-second wiring
+  proof. The `windmeters-modbus-interface-tester` on the same bus is both
+  a third node and a scriptable well-formed master (machine API, see its
+  `manual/api.md`).
+
+## MAX3485-rig lessons (2026-07-06, learned the hard way)
+
+- **The tester never stops listening.** Its Modbus master only drains its
+  UART RX during its own transactions, so it buffers every byte the raw
+  master puts on the shared bus; its next transaction then parses the
+  stale backlog and reports CRC_ERR (log showed ~30 overheard frames
+  ahead of the true response). One throwaway read IS the flush — retry
+  once on `crc_error` before trusting a tester-API read after raw-master
+  traffic (`rs485_raw_check.dut_diag`).
+- **Inter-frame marks in composed patterns must exceed t3.5 (4.01 ms).**
+  A 2.5 ms gap between a garbage tail and the recovery request made the
+  DUT (correctly) coalesce them into one discarded frame — 48 bit times
+  of mark (5 ms) is the house gap.
+- **Noise floods don't move the DUT's CRC counter** — random bytes arrive
+  framing-poisoned (FE/overflow) and take the silent-discard path;
+  only cleanly-framed-wrong-CRC frames (e.g. split halves) increment
+  30009. Assert flood recovery by behavior, not by that counter.
+- The DUT answers master baud offsets to ±3 % in both directions
+  (measured with the rate read back from the ladder); its own HSI adds
+  ~+0.3 %.
 
 ## M2K / libm2k quirks (learned on the bench, fw v0.33 + libm2k 0.9.0)
 

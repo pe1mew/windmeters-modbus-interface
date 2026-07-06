@@ -218,8 +218,11 @@ it drives spaces only and lets bias supply marks — the MAX3485's
 negative receiver threshold reads that fine), M2K scope on A/B for the
 analog wire view, Saleae ch8/ch15 unchanged. Judge script:
 `software/hil/rs485_check.py` (passive — decodes live traffic, asserts
-the rows below). The byte-exact vectors still need a scripted bus-side
-master (second MAX3485 on M2K DIO0/DIO1, or USB-RS485).
+the rows below). For the byte-exact vectors a **second MAX3485 raw
+master** joined the rig later the same day (M2K DIO0 → DI, DIO1 →
+DE+R̄Ē, V+ → VCC): `software/hil/rs485_raw_check.py` — bit-banged
+two-channel patterns with exact timing (rig lessons in
+`software/hil/README.md`).
 
 **The first session immediately caught a ship-blocker** — the TX phase
 was still open-drain from the TTL-rig days and transmitted a 30 ms break
@@ -231,13 +234,13 @@ exactly the class of defect this section exists to catch before the PCB.
 | Test | TDS ref | Status |
 |---|---|---|
 | DE assert before first start bit; de-assert within one character time — scope-asserted from Saleae ch15 vs ch8 timestamps | FR-MB04 | **DONE 2026-07-06**: lead 1–100 µs before the first start bit over 117 responses; release lands on the TC flag (−1..+1 µs of the last stop-bit edge at nominal baud, limit 1146 µs); never asserted outside a response window |
-| Split-frame vectors: 4 bytes + ≥5 ms pause + remainder → silence, next frame recovers | FR-MB03 | pending scripted bus-side master |
-| Garbage floods: 60 s random bytes then a valid request; 400-byte oversize burst + gap + valid request; 10/20 repetitions | FR-MB24 | pending scripted bus-side master |
+| Split-frame vectors: 4 bytes + ≥5 ms pause + remainder → silence, next frame recovers | FR-MB03 | **DONE 2026-07-06**: 10/10 — both halves silently discarded (DUT CRC counter +2 per rep, exactly), recovery request answered every time |
+| Garbage floods: 60 s random bytes then a valid request; 400-byte oversize burst + gap + valid request; 10/20 repetitions | FR-MB24 | **DONE 2026-07-06**: 10× 2 s random flood, 1× 60 s soak, 10× 400-byte oversize — recovery request answered 21/21; noise takes the silent FE/overflow discard path (CRC counter untouched, by design) |
 | Response-storm check on real transceiver: one request → exactly one response, bus idle ≥500 ms after, ×100 | FR-MB23 | **DONE 2026-07-06**: 117/117 over 400 s — one response per request, zero spontaneous DUT frames, DE windows == responses, bus idle between polls (tester cadence ~3.4 s) |
 | Reset-window bus safety: flash the DUT while a third-party pair exchanges frames — DE never asserts (10 k pull-down does its job), no disturbed frames | FR-S19 | **CORE DONE 2026-07-06** (tester as the live traffic): reflash mid-capture, 6.5 s dead window — all 28 master frames CRC-clean throughout, zero DE assertions outside valid responses, DUT recovered and served; the literal third-party-pair variant waits for a second unit (§9.2) |
 | Idle-bias sanity: RO idles mark with the R2/R3 bias; DUT gap detection against real RO edges | FR-MB03 | **DONE 2026-07-06**: RO mark in every inter-frame gap; note — rig bias is only the tester module's weak network (≈ +0.05 V differential), readable thanks to the MAX3485's negative threshold; the PCB's R2/R3 (+baseline +200 mV) is the real fail-safe |
-| Off-nominal baud probing (±1–3% master) via M2K byte-exact timing | FR-MB01 margin | pending scripted bus-side master |
-| Latency histogram re-run through the transceiver (1000 requests) | FR-MB20/21 | sample of 117 through the MAX3485: min/avg/max 4.15/4.20/4.25 ms (t3.5 = 4.01 ms, budget 100 ms); full 1000-request histogram waits for the scripted master's cadence |
+| Off-nominal baud probing (±1–3% master) via M2K byte-exact timing | FR-MB01 margin | **DONE 2026-07-06**: answered at every probed offset out to ±3% (actuals +0.94/−1.07/+1.93/−2.01/+2.93/−3.01% from the rate-ladder read-back); DUT HSI contributes ~+0.3% |
+| Latency histogram re-run through the transceiver (1000 requests) | FR-MB20/21 | **DONE 2026-07-06**: 1000/1000 transactions, zero CRC errors — min/med/p99/max = 4.06/4.11/4.16/4.17 ms (t3.5 = 4.01 ms, budget 100 ms); the whole distribution spans 110 µs |
 
 Wire-integrity results (both directions through the transceiver,
 2026-07-06): every master and DUT frame CRC-valid at PD6 (RO path,
@@ -265,8 +268,28 @@ zero across the whole matrix. The 40004 write that coincided with the
 open-drain discovery is formally cleared: every accepted cutoff write
 was followed by a full image read — the DUT never stopped serving.
 This substantially pre-runs §9.2's "full acceptance suite over RS-485"
-row for the speed build; byte-exact malformed vectors (split frames,
-garbage, off-baud) still need the raw master below.
+row for the speed build; the byte-exact malformed vectors followed the
+same day via the raw master (see the table above) — **§9.1 is complete
+for the speed build**.
+
+**Direction build over RS-485 (2026-07-06, address 31): register matrix
+72/72.** `rs485_regs_check.py --build direction` runs the same §2.7/§2.8
+exercise (the holding matrix is identical on both builds per FR-MB27;
+the input-register active/zero map is build-aware: identification
+0x0201, speed regs 30002/30004 and pulse-age/gust 30011/30012 read 0,
+raw ADC 516/1023 in range, no DIR_FAULT with PA2 driven) plus a
+**direction-only functional block**: writing the 40001 north offset and
+reading 30001 back — the angle tracks the offset with exact 3600
+wraparound (90°/180°/360° all 0 LSB error, base 181.4°). FR-S30 status
+dance identical (bit 0 +0.4 s, bit 1 +9.8 s); served delta 79/79; CRC
+counters zero. Raw byte-exact vectors via the second MAX3485 also green
+on this build: split 10/10 (DUT CRC counter +20), garbage floods 3/3
+(10× 2 s flood, 60 s soak, 10× 400-byte oversize), baud margin to ±3%,
+and the 1000-request latency histogram 1000/1000 at 4.07/4.12/4.17/
+4.44 ms. PA2 was driven from the divider (method of record) throughout;
+the FR-S38 float-fault path is the one direction row still requiring a
+physical PA2 disconnect (noted for the next bench pass). §9.1 is now
+complete for both builds bar that single float-fault row.
 
 ### 9.2 With the real PCB (product hardware)
 
