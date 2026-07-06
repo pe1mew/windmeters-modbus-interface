@@ -367,6 +367,21 @@ analyzer unreliable at 9600 → raw-edge software UART decode).
 FR-MB24 garbage-flood/oversize vectors, FR-MB03 split-frame vectors,
 RS-485 electrical rows.
 
+**Third bench-forced finding — first MAX3485 rig session (2026-07-06):**
+the TX-phase pin config was open-drain (`GPIO_CNF_OUT_OD_AF`), a habit of
+the shared TTL wire whose external pull-up supplied the highs. Behind the
+transceiver nothing pulls the DI/RO node up during transmission (RO is
+tri-stated while DE is high), so only the start bits were driven and every
+response left the driver as a solid 30 ms break — while reception, DE
+timing, and the USART's shifting all looked perfect. The DUT-side symptom
+chain (PD6 parks low inside the DE window; bus differential parks at
+space) cost a bench afternoon because reception kept working. Fix:
+push-pull AF for the TX window (`mb.c`, mirrors `debug_uart`); the real
+PCB has no pull-up on the DI/RO net either, so the TTL rig had masked a
+ship-blocking defect — exactly what integrationPlan §9.1 exists to catch.
+Verified on the wire: responses CRC-clean both at PD6 and decoded from
+the A/B differential (M2K scope).
+
 ## 6. Phase 4 — integration
 
 Phases 0–3 have exited; the detailed integration plan now lives in

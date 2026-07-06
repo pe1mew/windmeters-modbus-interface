@@ -180,6 +180,14 @@ In order of preference:
    discipline, 2026-07-03): DI + RO tied together on net `MB-TX/RX` → PD6;
    DE + R̄Ē tied together on net `MB-RE/DE` → PC2. RO goes high-Z whenever
    DE is asserted, so TX-phase drive on the shared node is contention-free.
+ - **`MB-TX/RX` needs no pull-up** (settled 2026-07-06, first MAX3485 rig
+   session): the node is always actively driven — RO push-pull during
+   receive, PD6 TX push-pull during transmit. The TX phase *was*
+   open-drain (a TTL-rig habit); behind the transceiver that transmitted
+   a solid break, fixed in `mb.c` (driverDevelopment.md §5.3, third
+   finding). Do not "fix" a quiet bus by adding a pull-up here — the
+   fail-safe idle level belongs on the A/B side bias (R2/R3), not on the
+   logic node.
  - **10 kΩ pull-down on `MB-RE/DE`** (added 2026-07-03): holds the
    transceiver in receive mode while the MCU is in reset and during
    WCH-LinkE flashing — without it, a floating DE can jam the shared bus.
@@ -193,7 +201,7 @@ The SOP-8 bonds out only 6 GPIO. Note: none of the USART1 remap combos place bot
 
 | Pin | Name | Assignment | Function used |
 |-----|------|------------|---------------|
-| 1 | PD6 | RS-485 data | USART1 half-duplex (HDSEL); tie to MAX3485 DI + RO |
+| 1 | PD6 | RS-485 data | USART1 remap-switched RX/TX (no HDSEL); tie to MAX3485 DI + RO |
 | 2 | VSS | Ground | — |
 | 3 | PA2 | Wind-direction (analog) | ADC A0 (also OPP0 op-amp input) |
 | 4 | VDD | Power | — |

@@ -55,13 +55,18 @@ version 1 will be tagged `fw-v1` at the first release.
   tested exhaustively (identity error 0 LSB over all 3600 angles) plus an
   on-target boot self-test.
 - `modbus_rtu` (`mb`): 26/26 TDS §2 matrix + 40/40 endurance on a TTL rig,
-  response latency 5.2 ms (budget 15/100 ms). Two bench-forced design
+  response latency 5.2 ms (budget 15/100 ms). Three bench-forced design
   changes: **HDSEL abandoned** (intermittently swallows the first byte
   after bus idle — replaced by a remap-switching line discipline: RX
   natively on PD6, TX remapped in only for the response; self-echo
-  eliminated) and **interrupts abandoned** (an RXNE ISR corrupted ~1/3 of
+  eliminated), **interrupts abandoned** (an RXNE ISR corrupted ~1/3 of
   frames with no error flags; polled RX is provably lossless at 9600 baud
-  — the architecture is now zero-ISR with no concurrency surface).
+  — the architecture is now zero-ISR with no concurrency surface), and
+  **TX made push-pull** (first MAX3485 rig session: the open-drain TX
+  inherited from the shared TTL wire has no pull-up behind the
+  transceiver and transmitted a solid break — the TTL rig's pull-up had
+  masked a ship-blocking defect; RO is tri-stated during DE, so push-pull
+  is contention-free).
 
 ### Added — product firmware (`software/firmware/`, stages A–F)
 
@@ -95,7 +100,11 @@ version 1 will be tagged `fw-v1` at the first release.
 - Check scripts (each standalone): `smoke_test`, `blinky_check`,
   `uart_check`, `m2k_smoke`, `m2k_signal_check` (15/15 signal
   verification), `ws_check`, `wd_check`, `mb_check`, `regs_check`,
-  `meas_check`, `avg_check`, `version_check`.
+  `meas_check`, `avg_check`, `version_check`, `rs485_check` (MAX3485
+  rig: passive judge of live master traffic — DE timing, storm,
+  idle-bias, latency), `rs485_regs_check` (full register read/write
+  matrix over RS-485, driven through the tester's machine API — 62/62
+  on the speed build).
 - `acceptance/`: pytest suite (NFR-TST01 core) — one command per flashed
   variant; **green on both builds** (speed 6/6, direction 6/6), including
   build-gate checks and an opt-in reproducible-build comparison.

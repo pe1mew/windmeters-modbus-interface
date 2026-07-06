@@ -119,8 +119,14 @@ static void mb_send(const uint8_t *p, uint16_t n)
 {
 	tx_active = 1;
 	// TX phase: remap 2 puts USART1_TX on PD6; pin becomes AF output.
+	// Push-pull, NOT open-drain: the MAX3485 tri-states RO while DE is
+	// high, so nothing else drives or pulls the node during the response
+	// — an open-drain TX only ever drove the start bits and put a solid
+	// break on the bus (bench 2026-07-06, first MAX3485 rig session; the
+	// TTL rig masked it because its external pull-up supplied the highs).
+	// Contention-safe: RO is high-Z for exactly the DE-high window.
 	AFIO->PCFR1 |= AFIO_PCFR1_USART1_RM1_BIT;
-	funPinMode(PD6, GPIO_Speed_10MHz | GPIO_CNF_OUT_OD_AF);
+	funPinMode(PD6, GPIO_Speed_10MHz | GPIO_CNF_OUT_PP_AF);
 
 	funDigitalWrite(PC2, FUN_HIGH);              // DE asserted (FR-MB04)
 	for (uint16_t i = 0; i < n; i++) {

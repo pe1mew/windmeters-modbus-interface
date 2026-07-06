@@ -11,6 +11,12 @@ Wiring (driverDevelopment.md §5.2, TTL variant):
     DUT PC2 (pin 6)  <- Saleae ch 15 (DE observation)
     LED removed from PD6 (it would sag the pulled-up idle level)
 
+The pull-up idles the shared wire mark between frames (M2K master and DUT
+both release it). Note: DUT TX has been push-pull since 2026-07-06
+(driverDevelopment.md §5.3, third finding — it was open-drain when this
+suite first ran, which the pull-up masked); the pull-up stays for the
+idle level only.
+
 Run:  .venv-m2k\\Scripts\\python.exe mb_check.py [--saleae-channel 8]
 
 Vectors map to TDS §2 (FR-MB IDs in each test name).
