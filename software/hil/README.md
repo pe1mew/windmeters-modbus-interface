@@ -4,6 +4,12 @@ Scripted hardware-in-the-loop testing per `design/driverDevelopment.md` §2.3/§
 flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP)
 → assert (Python).
 
+> **Consolidated results:** [`testReport.md`](testReport.md) is the single
+> record of every HIL test with its setup, expected result, pass criteria,
+> and verdict. This README covers *how* to run the harness (instruments,
+> wiring, quirks); the test report covers *what was tested and the outcome*.
+> Regenerate the report when the check scripts or the design docs change.
+
 ## Instruments
 
 | Instrument | Interface | Role |

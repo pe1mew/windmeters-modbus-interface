@@ -97,6 +97,10 @@ release those binaries. The firmware version byte lives in
   vectors, measurement services, averaging engine, version chain, and
   build gates. See [`software/hil/README.md`](software/hil/README.md) for
   instrument setup, wiring, and the bench-quirk catalogue.
+- **HIL test report** — [`software/hil/testReport.md`](software/hil/testReport.md)
+  consolidates every hardware-in-the-loop test (driver-phase, integration-
+  stage, and MAX3485 transceiver rig) with its setup, expected result, and
+  pass/fail verdict in one place.
 
 ## Related repositories
 
