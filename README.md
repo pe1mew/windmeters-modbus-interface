@@ -24,10 +24,10 @@ holds the speed pulse count).
 
 | Area | State |
 |---|---|
-| Requirements | [`design/TDS.md`](design/TDS.md) v0.6 — 67 active requirements, hardened by a multi-agent audit + verification passes |
+| Requirements | [`design/TDS.md`](design/TDS.md) **v0.7** — 68 active requirements (incl. FR-S39 persistence), hardened by multi-agent audits + verification passes |
 | Drivers | Pulse counting, ADC/circular-mean, Modbus RTU — all HIL-verified on silicon ([`design/driverDevelopment.md`](design/driverDevelopment.md)) |
-| Product firmware | Integration stages A–F complete; **TDS-functionally complete**, acceptance suite green on both variants ([`design/integrationPlan.md`](design/integrationPlan.md)) |
-| Hardware | KiCad schematic/PCB in design; MAX3485 rig and real-PCB test rows pending (plan §9) |
+| Product firmware | Integration stages A–F complete; **TDS-functionally complete** on all three variants (speed, direction, combined), acceptance suite green ([`design/integrationPlan.md`](design/integrationPlan.md)) |
+| Hardware/HIL | KiCad schematic/PCB in design; **§9.1 MAX3485-rig HIL complete on all three variants**; real-PCB rows (§9.2) pending |
 | Release | Firmware version 1 not yet tagged ([`software/firmware/RELEASES.md`](software/firmware/RELEASES.md)) |
 
 ## Hardware
@@ -46,10 +46,11 @@ holds the speed pulse count).
 
 ## Modbus register map (summary)
 
-12 input registers (FC04) and 4 holding registers (FC03/06/16), identical
-on both variants — absent-sensor registers read 0. Highlights: instantaneous
-and averaged values, status bits, identification (build + firmware
-version), uptime, CRC/served counters, gust, seconds-since-last-pulse.
+12 input registers (FC04) and 4 holding registers (FC03/06/16); registers
+of an absent sensor read 0, and the combined build adds a 13th input
+register (30013, direction raw ADC). Highlights: instantaneous and averaged
+values, status bits, identification (build + firmware version), uptime,
+CRC/served counters, gust, seconds-since-last-pulse.
 Holding: direction offset, measurement window, averaging window, low-speed
 cut-off — **persisted in flash across reset/power-loss** (FR-S39); the §2.8
 defaults apply only on first boot / erased store. The authoritative map with
@@ -60,12 +61,13 @@ ranges, defaults, and requirement IDs is [`design/TDS.md`](design/TDS.md)
 
 | Path | Contents |
 |---|---|
-| `design/` | The document chain: `scratchBook.md` (working notes) → `TDS.md` (requirements) → `softwareArchitecture.md` (how) → `driverDevelopment.md` (driver phases + results) → `integrationPlan.md` (product firmware phases + results) |
+| [`design/`](design/README.md) | The design-document chain (index in [`design/README.md`](design/README.md)): scratchBook → TDS → softwareArchitecture (+ UML diagrams in `design/diagrams/`) → driverDevelopment → integrationPlan |
 | `hardware/KiCad/` | Schematic + PCB (KiCad); symbol libraries as git submodules |
 | `hardware/Documentation/` | Component datasheets (HLK-K78xx, DB20x, Kradex enclosure, …) |
-| `software/firmware/` | Product firmware (PlatformIO + ch32v003fun), two build envs + `_test` variants |
+| `software/firmware/` | Product firmware (PlatformIO + ch32v003fun), three build envs (speed / direction / combined) + `_test` variants |
 | `software/drivers/` | Standalone driver projects with HIL test shells (the verified libraries the product references in place) |
-| `software/hil/` | Scripted hardware-in-the-loop harness: Saleae Logic 2 (MCP) + ADALM2000 (libm2k) + `acceptance/` pytest suite |
+| `software/hil/` | Scripted hardware-in-the-loop harness: Saleae Logic 2 (MCP) + ADALM2000 (libm2k) + `acceptance/` pytest suite; consolidated [`testReport.md`](software/hil/testReport.md) |
+| `Doxyfile` | Doxygen config — builds a single site (design docs + API reference) with this README as the landing page |
 | `documentation/` | Chip pinout and project reference images |
 
 Clone with submodules:
@@ -109,6 +111,21 @@ release those binaries. The firmware version byte lives in
   consolidates every hardware-in-the-loop test (driver-phase, integration-
   stage, and MAX3485 transceiver rig) with its setup, expected result, and
   pass/fail verdict in one place.
+
+## Documentation
+
+- **Design record** — [`design/README.md`](design/README.md) indexes the
+  document chain (requirements → architecture → drivers → integration) and
+  the UML diagrams.
+- **API + design site** — the firmware headers/sources carry full Doxygen,
+  and [`Doxyfile`](Doxyfile) folds the design docs in as pages with this
+  README as the landing page. Build the browsable HTML with:
+
+  ```sh
+  doxygen Doxyfile        # output in documentation/doxygen/html/index.html
+  ```
+- **Test evidence** — [`software/hil/testReport.md`](software/hil/testReport.md)
+  is the consolidated hardware-in-the-loop test report.
 
 ## Related repositories
 

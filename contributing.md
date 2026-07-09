@@ -17,20 +17,23 @@ Thank you for considering contributing to this project! Please follow the guidel
 - **Requirements first**: firmware behavior is specified in
   [`design/TDS.md`](design/TDS.md) with numbered requirements (FR-MB…,
   FR-S…, NFR-…). Behavior changes start with a TDS change; code and tests
-  reference the requirement IDs they implement.
-- **Firmware changes**: both variants must build —
-  `pio run -e wind_speed` and `pio run -e wind_direction` from
-  `software/firmware/` (resource ceilings are enforced by the build).
-  Host-testable logic (e.g. the circular-mean math) keeps its host tests
-  green: `python software/drivers/common/circmean/test_circmean.py`.
+  reference the requirement IDs they implement. Start from the design index
+  [`design/README.md`](design/README.md).
+- **Firmware changes**: all three variants must build —
+  `pio run -e wind_speed`, `pio run -e wind_direction` and
+  `pio run -e wind_combined` from `software/firmware/` (resource ceilings
+  are enforced by the build). Host-testable logic (e.g. the circular-mean
+  math) keeps its host tests green:
+  `python software/drivers/common/circmean/test_circmean.py`.
 - **Hardware-verified changes**: if you have the bench (WCH-LinkE, Saleae
   Logic 2, ADALM2000 — see [`software/hil/README.md`](software/hil/README.md)),
   run the acceptance suite per flashed variant:
-  `pytest software/hil/acceptance --build speed|direction`.
+  `pytest software/hil/acceptance --build speed|direction|combined`.
   Never release `*_test` build binaries (they contain bench-only hooks).
 - Keep commits focused and meaningful; write clear commit messages.
-- Update documentation if applicable — the design documents in `design/`
-  are part of the deliverable, not an afterthought.
+- **Update documentation** — the design documents in `design/` are part of
+  the deliverable, not an afterthought. Public headers carry Doxygen; keep
+  it current and regenerate the site (`doxygen Doxyfile`) when APIs change.
 
 ## Submitting a Pull Request
 1. **Push to Your Fork**:

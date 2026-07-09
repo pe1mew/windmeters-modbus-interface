@@ -158,6 +158,24 @@ version 1 will be tagged `fw-v1` at the first release.
   limits, M2K session-state behavior, AWG/scope accuracy, DUT UART
   gotchas) — hard-won knowledge that keeps future debugging short.
 
+### Added — documentation & tooling
+
+- **Comprehensive Doxygen** on every project header (file blocks with FR-ID
+  rationale and `@ref` cross-links; `@param`/`@return`/`@note` on all public
+  functions, macros, structs and members) — comment-only, all variants build
+  to identical sizes.
+- **`Doxyfile`** builds a single browsable site with the project README as
+  the landing page, folding the design docs (TDS, integration plan,
+  architecture, driver development, scratchbook) + HIL report in as pages
+  alongside the API reference; generates with zero warnings.
+- **UML diagrams** (`design/diagrams/`, PlantUML sources + rendered PNGs):
+  a component diagram, a zero-ISR super-loop sequence diagram, and the
+  Modbus RTU line-discipline state machine — embedded in
+  `softwareArchitecture.md` §7.
+- **`design/README.md`** indexes the design-document chain and variants;
+  root docs (README, contributing) updated for the three variants,
+  persistence, and the documentation site.
+
 ---
 
 *Older working history predating this changelog lives in the git log

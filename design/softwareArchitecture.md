@@ -48,8 +48,8 @@ Initialization before the loop follows the FR-S18 order strictly:
 PC2/DE low first → PC4 address latch → sensor front-end ready (ADC
 self-calibration / TIM2 clear) → IWDG on → USART1 receiver enabled last.
 
-*See [§7](#7-diagrams-uml) for the component, super-loop sequence, and
-Modbus state-machine diagrams.*
+*See §7 (below) for the component, super-loop sequence, and Modbus
+state-machine diagrams.*
 
 ## 3. Key decisions and why
 
