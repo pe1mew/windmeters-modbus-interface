@@ -1,0 +1,51 @@
+# Minimal Doxyfile for the Windmeters Modbus Interface firmware.
+#
+# Generate the HTML API docs with:
+#     doxygen Doxyfile
+# Output lands in documentation/doxygen/html/index.html.
+#
+# Only non-default options are set; everything else uses Doxygen's defaults.
+
+#---------------------------------------------------------------------------
+# Project
+#---------------------------------------------------------------------------
+PROJECT_NAME           = "Windmeters Modbus Interface"
+PROJECT_BRIEF          = "CH32V003 Modbus RTU wind-speed / -direction / combined sensor interface"
+PROJECT_NUMBER         = "firmware v1 (TDS v0.7)"
+OUTPUT_DIRECTORY       = documentation/doxygen
+
+#---------------------------------------------------------------------------
+# Input — the product firmware and the verified driver libraries
+#---------------------------------------------------------------------------
+INPUT                  = software/firmware/src \
+                         software/drivers/common \
+                         software/drivers/modbus_rtu/lib \
+                         software/drivers/wind_speed/lib \
+                         software/drivers/wind_direction/lib
+FILE_PATTERNS          = *.h *.c
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */.pio/* */libdeps/* */.venv*/* */build/*
+
+#---------------------------------------------------------------------------
+# Build — C project, document everything (including static + all variants)
+#---------------------------------------------------------------------------
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+JAVADOC_AUTOBRIEF      = YES
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+
+# Reveal declarations behind build-variant guards: predefining the combined
+# build pulls in HAVE_WIND_SPEED + HAVE_WIND_DIRECTION (via sensors.h), and
+# TEST_HOOKS reveals the bench-only hooks — so the docs cover every variant.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+PREDEFINED             = SENSOR_WIND_COMBINED TEST_HOOKS
+
+#---------------------------------------------------------------------------
+# Output — HTML with a source browser; no LaTeX
+#---------------------------------------------------------------------------
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+SOURCE_BROWSER         = YES

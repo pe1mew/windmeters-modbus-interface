@@ -28,6 +28,10 @@ fp-info-cache
 # Editor history (vscode-local-history etc.)
 .history/
 
+# ---- Doxygen ----
+# Generated API docs (run `doxygen Doxyfile` to regenerate)
+documentation/doxygen/
+
 # ---- OS / editor ----
 .DS_Store
 Thumbs.db
