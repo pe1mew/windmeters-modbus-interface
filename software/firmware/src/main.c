@@ -33,17 +33,24 @@ int main(void)
 	/* FR-S18 init order:
 	 * (1) PC2/DE low first + (2) PC4 address latch + IWDG + PVD ... */
 	board_init_early();
-	/* (3) sensor front-end(s) ready — a combined build inits both ... */
+	/* (3) sensor front-end(s) ready — a combined build inits both. */
 #ifdef HAVE_WIND_SPEED
 	ws_init();
-	meas_speed_init();
 #endif
 #ifdef HAVE_WIND_DIRECTION
 	wd_init(); /* includes ADC self-calibration */
+#endif
+	/* regs_init loads the persisted holdings (FR-S39) BEFORE the
+	 * measurement services latch the window, so the first window already
+	 * uses the stored duration — no spurious first-window abort at boot. */
+	regs_init(board_mb_address());
+#ifdef HAVE_WIND_SPEED
+	meas_speed_init();
+#endif
+#ifdef HAVE_WIND_DIRECTION
 	meas_dir_init();
 #endif
 	/* (4) USART receiver enabled last. */
-	regs_init(board_mb_address());
 	mb_init(regs_cfg());
 
 	const uint32_t second_ticks = FUNCONF_SYSTEM_CORE_CLOCK;
@@ -53,6 +60,8 @@ int main(void)
 	{
 		mb_poll();
 		regs_service(); /* FR-S30: 40002/40003 change -> accumulator clear */
+		regs_persist_service(); /* FR-S39: save changed settings to flash
+		                         * (after mb_poll sent any response) */
 #ifdef HAVE_WIND_SPEED
 		meas_speed_service();
 #endif

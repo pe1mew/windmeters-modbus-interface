@@ -20,17 +20,18 @@ version 1 will be tagged `fw-v1` at the first release.
   C = 2πr/η) → **`TDS.md` v0.6** — 67 active requirements with measurable
   pass/fail criteria, matured through a 38-finding multi-agent gap audit,
   a 30-issue verification pass, and a fresh-eyes re-check. Key decisions:
-  volatile holding registers, hardware-only device addressing (solder
-  jumper + build variant), exception 04 never emitted, standard exception
-  codes only, atomic FC16, no-clamp range rejection.
+  persisted holding registers (FR-S39), hardware-only device addressing
+  (solder jumper + build variant), exception 04 never emitted, standard
+  exception codes only, atomic FC16, no-clamp range rejection.
 - `softwareArchitecture.md`: cooperative super-loop, later amended to
   **zero-interrupt** after bench findings (see firmware below).
 - `driverDevelopment.md`: three-driver plan with HIL matrices per phase;
   `integrationPlan.md`: six-stage product-firmware plan with per-stage
   results and the hardware-gated test set (MAX3485 rig + real PCB).
-- Open items documented for future decisions: persistence of the north
-  offset (volatile-register coherence review) and a combined-sensor
-  firmware variant (feasibility assessed: fits comfortably).
+- Two decisions were documented as deferred, then both subsequently taken
+  and implemented (see firmware): holding-register persistence (the
+  volatile-register coherence review → FR-S39) and the combined-sensor
+  firmware variant (→ `wind_combined`).
 
 ### Added — hardware (KiCad)
 
@@ -109,6 +110,21 @@ version 1 will be tagged `fw-v1` at the first release.
   also green on combined — the full §9.1 treatment, matching the single
   builds. An adversarial multi-agent review of the diff found no confirmed
   defects.
+- **Persistent holding registers (FR-S39).** The four holding registers
+  (40001–40004) now survive reset/power-loss — the CH32V003 has no EEPROM,
+  so `persist.c` flash-emulates it: two 64-byte pages at the top of flash
+  (above the NFR-RES01 code gate) as a ping-pong log, one 16-byte CRC'd
+  record per page, newest-sequence-wins, power-loss atomic, save-on-change.
+  `regs_init` seeds the holdings from flash (blank/corrupt → §2.8 defaults,
+  so FR-S21's defined state still holds); a changed set is committed from
+  the main loop *after* the Modbus response (the ~6 ms flash op stays out
+  of the FR-MB20/21 latency path). ~560 B flash / 8 B RAM. This takes the
+  long-deferred TDS §5 persistence decision (resolution (c), all four
+  registers). Bench-verified 7/7 (`rs485_persist_check.py`): non-default
+  settings survive a watchdog reset, an erased store falls back to
+  defaults, and the ping-pong handles successive saves. Requirements
+  updated: new FR-S39, FR-S21 carve-out, holding-map + interface-assumption
+  notes.
 
 ### Added — HIL harness (`software/hil/`)
 

@@ -1,4 +1,5 @@
 #include "avg.h"
+#include "persist.h"
 #include "regs.h"
 #include "sensors.h" /* HAVE_WIND_SPEED/DIRECTION + BUILD_TYPE */
 #include "version.h"
@@ -88,6 +89,10 @@ static mb_config_t cfg;
 static uint16_t shadow_window;
 static uint16_t shadow_avg;
 
+/* FR-S39: last-persisted snapshot. Gates flash access — regs_persist_service
+ * only touches flash when a holding register differs from this. */
+static persist_settings_t persisted;
+
 void regs_init(uint8_t mb_address)
 {
 	cfg.address = mb_address;
@@ -96,10 +101,41 @@ void regs_init(uint8_t mb_address)
 	cfg.input_read = input_read;
 	cfg.cross_validate = cross_validate;
 
+	/* FR-S39: seed the holdings from persistent storage; a blank/corrupt
+	 * store leaves the compile-time defaults (FR-S21 defined state). */
+	persist_settings_t ps;
+	if (persist_load(&ps)) {
+		h_offset = ps.offset;
+		h_window = ps.window;
+		h_avg = ps.avg;
+		h_cutoff = ps.cutoff;
+	}
+	persisted.offset = h_offset;
+	persisted.window = h_window;
+	persisted.avg = h_avg;
+	persisted.cutoff = h_cutoff;
+
 	r_status = STATUS_FIRST_WINDOW_INCOMPLETE | STATUS_AVG_NOT_FILLED;
 	shadow_window = h_window;
 	shadow_avg = h_avg;
 	avg_config(h_window, h_avg);
+}
+
+void regs_persist_service(void)
+{
+	/* FR-S39: persist a changed holding set. The RAM compare gates flash
+	 * access (no read/write unless something actually changed since the
+	 * last save); persist_save is a no-op if it already matches flash.
+	 * Called from the main loop AFTER the Modbus response, so the ~6 ms
+	 * flash op never lands in the response path (FR-MB20/21). */
+	if (h_offset == persisted.offset && h_window == persisted.window &&
+	    h_avg == persisted.avg && h_cutoff == persisted.cutoff)
+		return;
+	persisted.offset = h_offset;
+	persisted.window = h_window;
+	persisted.avg = h_avg;
+	persisted.cutoff = h_cutoff;
+	persist_save(&persisted);
 }
 
 void regs_service(void)

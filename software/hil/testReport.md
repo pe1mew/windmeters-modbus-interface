@@ -10,7 +10,8 @@ Hardware-in-the-loop (HIL) testing on this project means the CH32V003 device-und
 | Integration-stage HIL | 18 | 17 | INT-F-BUILD-02 (NFR-BLD01 reproducible-build hash compare, opt-in `-m reproducible`) |
 | MAX3485-rig HIL (§9.1) | 20 | 20 | — (FR-S38 float-fault + recovery now validated) |
 | Combined variant (`wind_combined`) | 4 | 4 | — |
-| **Totals** | **71** | **68** | **3 deferred / opt-in (see Pending section)** |
+| Persistence (FR-S39) | 2 | 2 | — |
+| **Totals** | **73** | **70** | **3 deferred / opt-in (see Pending section)** |
 
 > Test counts include NOT-RUN/DEFERRED/PENDING rows so the matrix is honest; those rows are excluded from the "Passing" column. INT-F-BUILD-02 is present and available but is opt-in and was not part of the core stage-F green run, so it is counted as not-yet-passing here.
 
@@ -175,6 +176,19 @@ Sizes: **6812 B flash / 1192 B RAM** (ceilings 14336/1792); single-sensor
 builds unchanged. The combined build now has the **full §9.1 treatment**
 (register matrix + byte-exact raw vectors + FR-S38 float-fault & recovery),
 matching speed and direction. No combined rows remain open.
+
+### Holding-register persistence (FR-S39, 2026-07-08)
+
+The four holding registers (40001–40004) persist across reset/power-loss in
+flash-emulated storage (`persist.c` — two-page ping-pong, one 16-byte CRC'd
+record per page, newest-sequence-wins, power-loss atomic, save-on-change,
+read-back-verified). Validated on the `wind_combined_test` build at address
+32 using the FR-S20 watchdog-hang hook to force a reset without a power cycle.
+
+| ID | Test | Setup / stimulus | Expected | Pass criteria | Result | Req refs |
+|---|---|---|---|---|---|---|
+| PERSIST-01 | Settings survive a reset | `rs485_persist_check.py`: write non-defaults via FC16 → trigger watchdog reset (0x00FF := 0xDEAD) → read back; then restore defaults + reset again | Written values survive the reset (not reverted to §2.8 defaults); blank store → defaults; ping-pong handles successive saves | 7/7 assertions | **PASS** 2026-07-08, 7/7. Blank store booted to defaults [0,1000,10,4]; wrote [900,2000,20,10] → watchdog reset (uptime 6→0) → read back [900,2000,20,10]; restored defaults survived a 2nd reset | FR-S39, FR-S21, FR-S20 |
+| PERSIST-REV | Adversarial flash-code review | 4-lens review (flash sequence vs ch32v003fun flashtest, ping-pong atomicity, integration/latency, region safety) + verify pass | No confirmed correctness/safety defects | 0 confirmed of 5 candidates | **PASS** 2026-07-08. All 5 refuted as latent-not-defect; two hardened anyway — init reorder (load persistence before meas latches the window) and a read-back verify + bounded retry in persist_save. Re-validated 7/7 | — |
 
 ## Pending / not yet run
 

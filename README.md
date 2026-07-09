@@ -51,8 +51,10 @@ on both variants — absent-sensor registers read 0. Highlights: instantaneous
 and averaged values, status bits, identification (build + firmware
 version), uptime, CRC/served counters, gust, seconds-since-last-pulse.
 Holding: direction offset, measurement window, averaging window, low-speed
-cut-off. The authoritative map with ranges, defaults, and requirement IDs
-is [`design/TDS.md`](design/TDS.md) §2.7/§2.8.
+cut-off — **persisted in flash across reset/power-loss** (FR-S39); the §2.8
+defaults apply only on first boot / erased store. The authoritative map with
+ranges, defaults, and requirement IDs is [`design/TDS.md`](design/TDS.md)
+§2.7/§2.8.
 
 ## Repository layout
 

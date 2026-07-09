@@ -27,6 +27,8 @@ uint16_t regs_cutoff_0_1ms(void);  // 40004
 // Measurement-side publishers (called from the main loop services).
 void regs_service(void);        // FR-S30: watch 40002/40003, clear the
                                 // averaging accumulator on change
+void regs_persist_service(void); // FR-S39: persist a changed holding set;
+                                // call after the Modbus response (flash op)
 void regs_second_tick(void);    // uptime (FR-S34) + pulse-age (FR-S36)
 void regs_window_aborted(void); // FR-S30: 40002 write aborted the window
 #ifdef HAVE_WIND_SPEED

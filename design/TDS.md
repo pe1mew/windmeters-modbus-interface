@@ -4,7 +4,7 @@
 |--------------|-------------------------------------------|
 | Document     | Technical Design Specification            |
 | Project      | `windmeters-modbus-interface` (DUT firmware) |
-| Version      | 0.6 (draft — §2 Modbus, §3 Software, §4 NFRs; v0.6 removes the device-address register: address is hardware-configured only, holding registers renumbered 40001–40004) |
+| Version      | 0.7 (draft — §2 Modbus, §3 Software, §4 NFRs; v0.6 removed the device-address register (address is hardware-configured only, holding registers renumbered 40001–40004); v0.7 adds FR-S39 holding-register persistence and the combined build variant — FR-S01/S02/S03/S32/MB27 reworded for three variants, §2.7 gains 30013) |
 | Date         | 2026-07-02                                |
 | Status       | Draft. Hardware, power, and calibration derivation remain in `design/scratchBook.md` until they graduate into this document. |
 | Related docs | `design/scratchBook.md` (register-map reasoning, hardware, calibration); sibling `windmeters-modbus-interface-tester` repo's `design/progress.md` §7 and `design/whatsNext.md` §3.2 (bench evidence cited in §2) |
@@ -32,7 +32,7 @@ FR-MB16, FR-MB26, FR-S21).
 
 Key design decisions fixed in this version:
 
-- Volatile holding registers, no non-volatile configuration storage — see FR-S21.
+- Holding registers persisted across reset in flash-emulated non-volatile storage (FR-S39); §2.8 defaults apply only on first boot / erased store (FR-S21).
 - Device address is hardware-configured only (build define + PC4 solder jumper); there is no address register — see FR-S03/FR-MB07.
 - Exception 04 never emitted; faults handled by watchdog and defined register values — see FR-MB29.
 
@@ -80,7 +80,7 @@ Key design decisions fixed in this version:
 | FR-MB14 | Must | A multi-register read (FC03/FC04) whose range spans at least one unimplemented address shall return exception 02 for the entire request. No partial data shall be returned. | FC04 request starting at the last valid input address with count 2; confirm exception 02, not partial data. |
 | FR-MB15 | Must | A write to an unimplemented holding register address shall return exception 02. | FC06 write to raw holding address 0x0020; confirm exception 02 and no side effect. |
 | FR-MB16 | — | **Withdrawn (v0.4).** Modbus has one address space per function code: FC06/FC16 by definition address the holding-register space (§2.8) exclusively; input registers (§2.7) are reachable only via FC04 and are read-only by construction. There is no wire-level "write to an input register" to reject. A write whose raw address is not listed in §2.8 is handled by FR-MB15. | *Non-normative regression note (owned by FR-MB10):* FC06 write of value 32 to raw 0x0000 (direction offset, valid range 0–3599) returns a normal response and follow-up FC03 confirms the value; FC04 read of raw 0x0000 still returns the measurement, unmodified by that write. Withdrawn IDs are excluded from NFR-TST01. |
-| FR-MB27 | Must | Both firmware builds shall implement the complete register map of §2.7 and §2.8 identically. Input registers whose sensor is not present in the active build shall read 0 (except raw 0x0004, which reports the build-specific diagnostic per §2.7). Configuration holding registers shall accept and store range-valid writes on both builds — with no measurement effect where the sensor is absent — and read back the stored value. No mapped register shall return exception 02 on either build. | On a wind-speed build, FC04 read of raw 0x0000–0x0004 quantity 5 returns a normal response with 0x0000 and 0x0002 equal to 0. On a wind-direction build the same read succeeds with 0x0001 and 0x0003 equal to 0. FC06 write of 100 to 40001 (direction offset) on a wind-speed build is accepted and reads back 100. |
+| FR-MB27 | Must | Every firmware build shall implement the §2.7/§2.8 register map: the single-sensor builds map raw 0x0000–0x000B (12 input registers), the combined build additionally maps 30013 (§2.7). Input registers whose sensor is not present in the active build shall read 0 (except raw 0x0004, which reports the build-specific diagnostic per §2.7). Configuration holding registers shall accept and store range-valid writes on every build — with no measurement effect where the sensor is absent — and read back the stored value. No mapped register shall return exception 02 on any build. | On a wind-speed build, FC04 read of raw 0x0000–0x0004 quantity 5 returns a normal response with 0x0000 and 0x0002 equal to 0. On a wind-direction build the same read succeeds with 0x0001 and 0x0003 equal to 0. FC06 write of 100 to 40001 (direction offset) on a wind-speed build is accepted and reads back 100. On a combined build both sensors' registers are live and FC04 of 0x000C (30013) succeeds. |
 | FR-MB28 | Must | FC03/FC04 requests with quantity = 0 or > 125 shall return exception 03 (Illegal Data Value). FC16 requests with quantity = 0, quantity > 123, or a byte-count field not equal to 2 × quantity shall return exception 03 and shall modify no register. Quantity validation shall be performed before address validation. | FC04 at raw 0x0000 with quantity 0 returns exception 03 (not 02, not an empty data frame) within 200 ms. FC03 with quantity 126 returns exception 03. FC16 to raw 0x0001 with quantity 2 but byte count 5 returns exception 03 and follow-up reads show both registers unchanged. |
 
 ### 2.5 Exception handling
@@ -102,26 +102,27 @@ Key design decisions fixed in this version:
 
 ### 2.7 Input register map (FC04, read-only)
 
-Measurement registers 30001–30005 and 30012 read 0 from reset until the first measurement window completes (FR-S23). Identification, status, uptime, counter, and time-since-pulse registers (30006–30011) are valid immediately after reset. ● = active on this build; ○ = reads 0 on this build (FR-MB27).
+Measurement registers 30001–30005 and 30012 read 0 from reset until the first measurement window completes (FR-S23). Identification, status, uptime, counter, and time-since-pulse registers (30006–30011) are valid immediately after reset. ● = active on this build; ○ = present but reads 0 on this build (FR-MB27); — = not mapped on this build (FC04 past the map edge returns exception 02, FR-MB13). The map edge is 0x000C (12 registers) on the single-sensor builds and 0x000D (13 registers) on the combined build, which adds 30013.
 
-| Raw | Modicon # | Description | Unit | Range | Speed build | Direction build |
-|-----|-----------|-------------|------|-------|-------------|-----------------|
-| `0x0000` | 30001 | Wind direction, instantaneous | 0.1° | 0–3599; 65535 = sensor fault (FR-S38) | ○ | ● |
-| `0x0001` | 30002 | Wind speed, instantaneous | 0.1 m/s | 0–65535 | ● | ○ |
-| `0x0002` | 30003 | Wind direction, averaged | 0.1° | 0–3599; 65535 = sensor fault (FR-S38) | ○ | ● |
-| `0x0003` | 30004 | Wind speed, averaged | 0.1 m/s | 0–65535 | ● | ○ |
-| `0x0004` | 30005 | Raw sensor diagnostic | build-specific | speed: pulse count last window (0–65535); direction: last raw 10-bit ADC conversion (0–1023) | ● | ● |
-| `0x0005` | 30006 | Status flags (normative definition: FR-S33) | bitfield | bit 0 = no completed window yet; bit 1 = averaging accumulator not filled; bit 2 = direction sensor fault; bits 3–15 = 0 | ● | ● |
-| `0x0006` | 30007 | Identification | — | high byte = build type (0x01 speed, 0x02 direction); low byte = firmware version (FR-S32) | ● | ● |
-| `0x0007` | 30008 | Uptime since reset | s | 0–65535, saturating (FR-S34) | ● | ● |
-| `0x0008` | 30009 | Bus CRC error count | — | 0–65535, wrapping (FR-S35) | ● | ● |
-| `0x0009` | 30010 | Served request count | — | 0–65535, wrapping (FR-S35) | ● | ● |
-| `0x000A` | 30011 | Seconds since last pulse | s | 0–65535, clamped (FR-S36) | ● | ○ |
-| `0x000B` | 30012 | Gust: max window speed in current averaging window | 0.1 m/s | 0–65535 (FR-S37) | ● | ○ |
+| Raw | Modicon # | Description | Unit | Range | Speed | Direction | Combined |
+|-----|-----------|-------------|------|-------|-------|-----------|----------|
+| `0x0000` | 30001 | Wind direction, instantaneous | 0.1° | 0–3599; 65535 = sensor fault (FR-S38) | ○ | ● | ● |
+| `0x0001` | 30002 | Wind speed, instantaneous | 0.1 m/s | 0–65535 | ● | ○ | ● |
+| `0x0002` | 30003 | Wind direction, averaged | 0.1° | 0–3599; 65535 = sensor fault (FR-S38) | ○ | ● | ● |
+| `0x0003` | 30004 | Wind speed, averaged | 0.1 m/s | 0–65535 | ● | ○ | ● |
+| `0x0004` | 30005 | Raw sensor diagnostic | build-specific | speed & combined: pulse count last window (0–65535); direction: last raw 10-bit ADC conversion (0–1023) | ● | ● | ● |
+| `0x0005` | 30006 | Status flags (normative definition: FR-S33) | bitfield | bit 0 = no completed window yet; bit 1 = averaging accumulator not filled; bit 2 = direction sensor fault; bits 3–15 = 0 | ● | ● | ● |
+| `0x0006` | 30007 | Identification | — | high byte = build type (0x01 speed, 0x02 direction, 0x03 combined); low byte = firmware version (FR-S32) | ● | ● | ● |
+| `0x0007` | 30008 | Uptime since reset | s | 0–65535, saturating (FR-S34) | ● | ● | ● |
+| `0x0008` | 30009 | Bus CRC error count | — | 0–65535, wrapping (FR-S35) | ● | ● | ● |
+| `0x0009` | 30010 | Served request count | — | 0–65535, wrapping (FR-S35) | ● | ● | ● |
+| `0x000A` | 30011 | Seconds since last pulse | s | 0–65535, clamped (FR-S36) | ● | ○ | ● |
+| `0x000B` | 30012 | Gust: max window speed in current averaging window | 0.1 m/s | 0–65535 (FR-S37) | ● | ○ | ● |
+| `0x000C` | 30013 | Wind direction, raw 10-bit ADC — combined build only (on single-direction builds this diagnostic is at 30005) | — | 0–1023 | — | — | ● |
 
 ### 2.8 Holding register map (FC03/FC06/FC16, read-write)
 
-All holding registers are volatile; the Default column is the value after any reset (FR-S21). Writes outside the valid range are rejected per FR-MB19/FR-MB22. A cross-register constraint between 40003 and 40004 is defined and enforced solely by FR-S31.
+All holding registers persist across reset in non-volatile storage (FR-S39); the Default column is the value on first boot / when the store is blank or corrupt (FR-S21). Writes outside the valid range are rejected per FR-MB19/FR-MB22. A cross-register constraint between 40003 and 40004 is defined and enforced solely by FR-S31.
 
 | Raw | Modicon # | Description | Unit | Valid range | Default |
 |-----|-----------|-------------|------|-------------|---------|
@@ -140,9 +141,9 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 
 | ID | Priority | Requirement | Pass/Fail criterion |
 |----|----------|-------------|---------------------|
-| FR-S01 | Must | The firmware shall be selectable at compile time for either wind speed or wind direction mode via a pre-processor define. | Build with `SENSOR_WINDSPEED` define produces a wind-speed binary; build with `SENSOR_WINDDIRECTION` produces a wind-direction binary. Both build without error from the same source tree. |
-| FR-S02 | Must | A single hardware PCB shall support both sensor types without modification. | Flash both release binaries onto one unmodified PCB in turn; each build passes its full §2/§3 acceptance suite on that board. |
-| FR-S03 | Must | The power-on Modbus device address shall be determined at startup by combining the firmware build type with the state of the solder jumper on PC4. This table is the single normative source of the address assignment: wind speed — jumper open = 30, bridged = 35; wind direction — jumper open = 31, bridged = 36. There is no address register; the address cannot be changed at runtime (FR-MB07). | Reading PC4 GPIO at startup selects the address per the table; the device responds only on that address after power-on (FR-MB07's criterion). |
+| FR-S01 | Must | The firmware shall be selectable at compile time for wind speed, wind direction, or combined (both sensors, one slave) mode via a pre-processor define. | Build with `SENSOR_WIND_SPEED` produces a wind-speed binary, `SENSOR_WIND_DIRECTION` a wind-direction binary, and `SENSOR_WIND_COMBINED` a combined binary. All build without error from the same source tree. |
+| FR-S02 | Must | A single hardware PCB shall support both sensor types without modification — individually (speed or direction build) or together (combined build). | Flash each release binary onto one unmodified PCB in turn; each build passes its full §2/§3 acceptance suite on that board. |
+| FR-S03 | Must | The power-on Modbus device address shall be determined at startup by combining the firmware build type with the state of the solder jumper on PC4. This table is the single normative source of the address assignment: wind speed — jumper open = 30, bridged = 35; wind direction — jumper open = 31, bridged = 36; combined — jumper open = 32, bridged = 37. There is no address register; the address cannot be changed at runtime (FR-MB07). | Reading PC4 GPIO at startup selects the address per the table; the device responds only on that address after power-on (FR-MB07's criterion). |
 | FR-S18 | Must | Initialization shall complete in this order before the main loop starts: (1) PC2 (DE/RE) configured as output driven low — receiver enabled, driver disabled — as the first GPIO action after reset; (2) PC4 read and the Modbus address latched; (3) sensor front-end ready — direction build: ADC self-calibration executed before the first conversion; speed build: TIM2 counter cleared at the instant the first measurement window opens; (4) USART1 receiver enabled last. | (a) Direction build: the first non-zero value after power-on at a fixed pot angle is within the FR-S11 tolerance, with no settling sequence of wrong values. (b) Speed build: with pulses applied from before power-on, the first completed window's 30005 equals rate × window ±1 pulse. (c) A valid request sent repeatedly from power-on is never answered from a wrong address. |
 | FR-S19 | Must | The firmware shall never transmit on the bus except in response to a valid addressed request (no boot banner, no test bytes). After any reset, received bytes shall be discarded until a bus-idle period of ≥3.5 character times has been observed. | Scope PC2 and the bus across 20 power cycles while another master/slave pair actively exchanges frames: DE never asserts except to answer a valid request to the DUT, and a DUT reset injected mid-frame of third-party traffic produces no response to that partial frame. |
 
@@ -151,12 +152,13 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 | ID | Priority | Requirement | Pass/Fail criterion |
 |----|----------|-------------|---------------------|
 | FR-S20 | Must | The independent watchdog (IWDG) shall be enabled before the main loop starts, with a timeout between 100 ms and 2 s, refreshed only from the main loop after both the Modbus service and the measurement service have run — never from an interrupt handler. | (a) Via a debug-build hook that enters an infinite loop, confirm the device resumes answering a valid FC04 within 3 s without a power cycle. (b) 24 h of continuous polling under normal operation triggers zero watchdog resets. |
-| FR-S21 | Must | All holding registers shall be volatile. After any reset (power-on, brown-out, watchdog, software), the firmware shall enter an identical defined state: holding registers per §2.8's Default column, all measurement accumulators cleared. No Modbus-commanded reset shall exist; power cycling is the only reset a master or installer can invoke. | Write non-default values to 40001–40004 and confirm via FC03. Trigger each reset source in turn (power cycle, watchdog hook, software reset): after each, the device responds at the jumper-derived address within 1 s and FC03 of raw 0x0000–0x0003 returns exactly the Default column. |
+| FR-S21 | Must | After any reset (power-on, brown-out, watchdog, software), the firmware shall enter a defined state: holding registers restored to their last persisted values (FR-S39), or to §2.8's Default column when the persistent store is blank/corrupt; all measurement accumulators cleared. No Modbus-commanded reset shall exist; power cycling is the only reset a master or installer can invoke. | Trigger each reset source in turn (power cycle, watchdog hook, software reset): after each, the device responds at the jumper-derived address within 1 s, FC03 of raw 0x0000–0x0003 returns the last committed values (FR-S39), and all accumulators are cleared (status bits 0/1 set). On a device with an erased store the same read returns exactly the §2.8 Default column. |
+| FR-S39 | Must | The four holding registers (40001–40004) shall persist across every reset and power-loss in on-chip non-volatile storage. On a write that *changes* a holding value (FC06/FC16, after it passes FR-MB19/FR-MB22/FR-S31 validation and the Modbus response has been transmitted), the firmware shall commit the whole holding set so a subsequent reset restores it (superseding the §2.8 defaults, per FR-S21). The commit shall be power-loss atomic — a reset at any point during a commit leaves the previously committed set intact, never a partial/corrupt configuration — and shall fall back to the §2.8 compile-time defaults when no valid record exists (first boot / erased store). Unchanged writes shall not wear the store. | Write non-default 40001–40004, trigger a watchdog reset, confirm FC03 returns the written values (not §2.8 defaults) within 1 s. On an erased store the read returns the §2.8 defaults. Re-writing identical values causes no additional non-volatile write. Power interrupted mid-commit never yields a partial configuration (the prior committed set survives). |
 | FR-S22 | Must | The device shall resume full normal operation (all §2 and §3 requirements) after any supply interruption or dip, without manual intervention. Brown-out protection (hardware POR plus PVD if needed) shall guarantee the MCU either operates correctly or is held in reset — no third state. | With a programmable supply, apply a dip matrix (3.3 V rail from 3.0 V to 0 V in 0.3 V steps; durations 1 ms to 10 s; 10 repetitions each): after every event the device answers a valid FC04 within 1 s of rail recovery with register contents equal to the defined post-reset state; zero hung/silent/garbage outcomes across the matrix. |
 | FR-S23 | Must | Measurement input registers (30001–30005, 30012) shall be initialised to 0 at reset and shall read 0 until the first measurement window completes (status bit 0, FR-S33). From the first completed window until the averaging accumulator has filled once (status bit 1, FR-S33), averaged registers 30003/30004 shall be computed over only the samples actually acquired since reset — partial-window mean, no zero-padding and no stale seeding. | Apply a steady stimulus equivalent to 5.0 m/s from before power-on with window 1 s / averaging 10 s: every FC04 response before the first window boundary reads 0 in all measurement registers; at t = 3 s register 30004 reads 50 ±2 LSB, not ~15 (the zero-padded value). With 40003 = 600, reads at t = 30 s already reflect the stimulus. Over 20 power cycles no measurement register ever exceeds 60 (6.0 m/s) for the 5.0 m/s stimulus. |
 | FR-S24 | Must | All register values returned in a single FC03/FC04 response shall form a coherent snapshot from one measurement update (interrupts briefly masked during the copy, or a double-buffer/sequence-counter scheme). In particular, on the speed build, 30002 and 30005 in the same response shall be consistent: 30002 equals the FR-S06 formula applied to that response's 30005, or 0 where the FR-S07 cut-off applies — never a mixture of two windows. | Drive PC1 with a pulse source alternating between two distinct rates synchronised to window boundaries; poll FC04 for 30001–30005 back-to-back for ≥1 hour (≥50,000 responses): the 30002/30005 consistency rule holds in 100% of responses and no response mixes values from two windows. |
 
-*Interface assumption (non-normative): because configuration is volatile (FR-S21), the Modbus master is expected to detect resets via 30008 (FR-S34) and re-apply site configuration.*
+*Interface assumption (non-normative): configuration persists across reset (FR-S39), so a master need not re-apply site configuration after a restart; 30008 (FR-S34) remains available to detect restarts.*
 
 ### 3.3 Wind speed measurement (speed build)
 
@@ -206,7 +208,7 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 
 | ID | Priority | Requirement | Pass/Fail criterion |
 |----|----------|-------------|---------------------|
-| FR-S32 | Must | Input register 30007 shall identify the device: high byte = build type (0x01 wind speed, 0x02 wind direction), fixed at compile time, independent of PC4; low byte = firmware version, incremented per release. | FC04 read returns 0x01vv on a wind-speed binary and 0x02vv on a wind-direction binary built from the same source commit. The value is identical with jumper open/bridged. The version byte matches the release records for the flashed binary. |
+| FR-S32 | Must | Input register 30007 shall identify the device: high byte = build type (0x01 wind speed, 0x02 wind direction, 0x03 combined), fixed at compile time, independent of PC4; low byte = firmware version, incremented per release. | FC04 read returns 0x01vv on a wind-speed binary, 0x02vv on a wind-direction binary, and 0x03vv on a combined binary built from the same source commit. The value is identical with jumper open/bridged. The version byte matches the release records for the flashed binary. |
 | FR-S33 | Must | Input register 30006 shall report status flags — this row is the single normative bitfield definition: bit 0 = no completed measurement window since reset or since the last 40002 write (FR-S23/FR-S30); bit 1 = averaging accumulator not yet filled since reset or since the last 40002/40003 write (FR-S23/FR-S30); bit 2 = direction sensor fault (FR-S38; direction build only, always 0 on the speed build); bits 3–15 = 0. | At power-on bits 0 and 1 are set; bit 0 clears after the first window, bit 1 after one full averaging window; both re-assert after a 40002 write per FR-S30's criterion. Direction build: wiper disconnect sets bit 2 (FR-S38). Speed build: bit 2 remains 0 throughout. |
 | FR-S34 | Must | Input register 30008 shall report whole seconds since the last reset, starting at 0 and saturating at 65535, allowing the master to detect restarts (value went backwards) and re-apply configuration (FR-S21). | A read shortly after power-on returns a low value; a later read has incremented consistently with FR-S17 timing accuracy; a watchdog reset via the test hook returns the register to 0. |
 | FR-S35 | Should | Input registers 30009 and 30010 shall count, respectively, every frame discarded for invalid CRC-16 (regardless of address) and every request for which a normal or exception response was transmitted. Both reset to 0 at power-on and wrap at 65535. | After a power cycle both read 0. 100 valid FC04 requests increment 30010 by exactly 100 and leave 30009 unchanged. 20 corrupted-CRC frames increment 30009 by exactly 20 and 30010 by 0. |
@@ -222,7 +224,7 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 | NFR-ENV01 | Must | All §2 and §3 requirements shall be met over an ambient temperature range of −25 °C to +70 °C. *(Range to be confirmed against the deployment site — §5; −40/+85 °C would require re-budgeting FR-S17.)* | In a climate chamber at both extremes: (a) 10,000 FC04 cycles at 9600 8N1 complete with zero framing/CRC errors; (b) the FR-S17 window measurement passes at its full-range tolerance. |
 | NFR-RES01 | Should | Each release build variant shall occupy no more than 14,336 bytes of flash (87.5% of 16 KB); static RAM (.data + .bss) plus documented worst-case stack shall not exceed 1,792 bytes (87.5% of 2 KB). | The linker map of each release build shows totals at or below the ceilings; the build script prints the numbers and fails the build when exceeded. |
 | NFR-BLD01 | Should | Both variants shall build from a clean checkout with a single documented command using a pinned toolchain (compiler name and exact version recorded in the repository). Two consecutive clean builds of the same commit shall produce bit-identical binaries. | Run the documented command twice from fresh clones of the same commit: SHA-256 of the two binaries per variant are identical; the recorded toolchain version matches the installed one. |
-| NFR-TST01 | Should | Every protocol-level pass/fail criterion in §2 that is executable over the serial link shall be implemented as an automated test case in `windmeters-modbus-interface-tester`, and both build variants shall pass 100% of these cases before any release is tagged. Excepted (verified manually per release with bench instruments): FR-MB01 (analyser decode), FR-MB04 (scope timing), FR-MB23 (bus capture). Withdrawn IDs (FR-MB16, FR-MB26) are excluded. | The tester's run report for the release commit lists every non-excepted, active FR-MB ID with result PASS for both variants; any FAIL or missing ID blocks the release. |
+| NFR-TST01 | Should | Every protocol-level pass/fail criterion in §2 that is executable over the serial link shall be implemented as an automated test case in `windmeters-modbus-interface-tester`, and each build variant shall pass 100% of these cases before any release is tagged. Excepted (verified manually per release with bench instruments): FR-MB01 (analyser decode), FR-MB04 (scope timing), FR-MB23 (bus capture). Withdrawn IDs (FR-MB16, FR-MB26) are excluded. | The tester's run report for the release commit lists every non-excepted, active FR-MB ID with result PASS for each variant; any FAIL or missing ID blocks the release. |
 
 ---
 
@@ -267,20 +269,27 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
     for operational knobs with universally valid defaults; constants of
     the installation (offset), the attached sensor (C, cut-off), or the
     device identity (address) belong in hardware, compile-time defines,
-    or persistent storage.* **Decision deliberately deferred — everything
-    stays as specified (v0.6) for now.** Revisit before field deployment
-    or when the master-side architecture is settled.
-- **Combined-sensor firmware variant (deferred decision, 2026-07-03).**
-  Feasibility assessed after integration stage E: pins/flash/RAM/timing
-  all fit comfortably (details in `design/integrationPlan.md` §10). Spec
-  impact if adopted: FR-S32 build type 0x03; FR-S03 address pair for the
-  combined variant; 30005's per-build meaning conflicts — direction raw
-  view moves to a new register (30013) or one diagnostic is dropped;
-  FR-S01/S02/FR-MB27 wording assumes two variants. Open strategic
-  question: whether the combined build eventually replaces the two
-  single-sensor variants (fault machinery already handles absent
-  sensors). No change to v0.6 for now.
+    or persistent storage.* **Decision taken 2026-07-08 — resolution (c),
+    persistence, implemented for all four holding registers** (`persist.c`,
+    flash-emulated two-page ping-pong; FR-S39). FR-S21 gained its carve-out;
+    §2.8 defaults now apply only on first boot / erased store. Bench-verified
+    7/7 (settings survive a watchdog reset; blank store → defaults). This
+    also neutralises the 40001/40004 criticism above — the installation
+    constant and the sensor constant now stick — so the option of demoting
+    40004 to a compile-time define (like C/FR-S25) is no longer forced,
+    though still available.
+- **Combined-sensor firmware variant — IMPLEMENTED 2026-07-08.** Introduced
+  as the third variant `wind_combined` (details in
+  `design/integrationPlan.md` §10; validated 77/77 over RS-485 plus the raw
+  suite and FR-S38). Spec updated accordingly: FR-S32 build type 0x03;
+  FR-S03 address pair 32/37; 30005 carries the speed pulse count and the
+  direction raw ADC moves to 30013 (§2.7); FR-S01/S02/FR-MB27 reworded for
+  three variants. Open strategic question left for later: whether the
+  combined build eventually *replaces* the two single-sensor variants (its
+  fault machinery already handles absent sensors) — retiring them is a
+  separate decision, not taken here.
 
 ---
 
-*End of Technical Design Specification v0.6*
+*End of Technical Design Specification v0.7 (2026-07-08: FR-S39
+persistence, combined variant).*
