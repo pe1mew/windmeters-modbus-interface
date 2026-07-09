@@ -166,13 +166,14 @@ sensors live simultaneously.
 | ID | Test | Setup / stimulus | Expected | Pass criteria | Result | Req refs |
 |---|---|---|---|---|---|---|
 | CMB-REG-01 | Full register matrix, both sensors live | Combined @ 32; tester API master; divider on PA2 + W2→PC1 30 Hz; `rs485_regs_check.py --build combined --speed-live` | Identity 0x0301; one FC04 image carries dir + speed; 30005 = speed count, 30013 = direction raw ADC; map edge 0x000D; FC03/06/16 + three-way atomicity + FR-S31; offset→angle wrap; FR-S30 status dance with both sensors; 5 silent addresses; served delta exact; CRC zero | **77/77** assertions pass | **PASS** 2026-07-08. dir 182.8° + speed 29.4 m/s (count 30 = 30 Hz×1 s, gust 29.4, dir-raw 30013 = 520); speed math exact (30002 == formula(30005)); FR-S30 bit 0 +1.6 s (both first windows), bit 1 +9.4 s (both averaging cursors filled); offset→angle 0–1 LSB; served delta 80/80; DUT+master CRC zero | FR-S01/S02/S03/S32, FR-MB05/13/14/15/19/22/25/27/30, FR-S12/S25/S26/S30/S31, TDS §10 |
+| CMB-RAW-03 | Byte-exact raw-master vectors (split, floods, baud, latency) | Combined @ 32; second-MAX3485 M2K raw master; `rs485_raw_check.py --build combined` | Split halves discarded + recovery; garbage-flood recovery incl. 60 s soak; baud margin to ±3%; 1000-request latency in [t3.5, 100 ms] | split 10/10 (CRC +20), flood 3/3, baud ±3%, latency 1000/1000 | **PASS** 2026-07-08. Split 10/10 (DUT CRC counter +20), garbage floods 3/3 (10× 2 s, 60 s soak, 10× 400-byte oversize), baud answered to ±3%, latency 1000/1000 at 4.07/4.12/4.17/4.35 ms | FR-MB01/03/24, FR-MB20/21 |
 | CMB-REV-02 | Adversarial diff review (per-cursor avg, register-map/status coherence, build-flag coverage, init/concurrency) | 4-lens multi-agent review + adversarial verify pass over the wind_combined diff | No confirmed correctness defects | 0 confirmed findings after verification | **PASS** 2026-07-08. 1 candidate (status bit-0 clear timing) raised and refuted — both averagers share the 40002 boundary so the skew is one loop pass, unobservable over Modbus | — |
 
 Sizes: **6812 B flash / 1192 B RAM** (ceilings 14336/1792); single-sensor
-builds unchanged. Not yet run on the combined build: the byte-exact raw
-suite (`rs485_raw_check.py --build combined` — protocol code is shared and
-unchanged from the single builds, so this is low-risk) and the FR-S38
-float-fault (shares the single-direction pending status).
+builds unchanged. The combined build now has the full §9.1 treatment
+(register matrix + byte-exact raw vectors), matching speed and direction.
+The only combined row still open is the FR-S38 float-fault, which shares
+the single-direction pending status (needs a physical PA2 disconnect).
 
 ## Pending / not yet run
 

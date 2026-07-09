@@ -335,17 +335,18 @@ def main() -> int:
                     choices=["all", "split", "flood", "baud", "latency"])
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=10530)
-    ap.add_argument("--build", choices=["speed", "direction"], default="speed",
+    ap.add_argument("--build", choices=["speed", "direction", "combined"],
+                    default="speed",
                     help="DUT variant (sets default slave + poller restart)")
     ap.add_argument("--slave", type=int, default=None,
-                    help="DUT address (default 30 speed / 31 direction)")
+                    help="DUT address (default 30 speed / 31 direction / 32 combined)")
     ap.add_argument("--no-poller-restart", action="store_true")
     args = ap.parse_args()
     url = f"http://{args.host}:{args.port}/mcp"
 
     global SLAVE, VALID_REQ
-    SLAVE = args.slave if args.slave is not None else (
-        31 if args.build == "direction" else 30)
+    SLAVE = args.slave if args.slave is not None else {
+        "speed": 30, "direction": 31, "combined": 32}[args.build]
     # Pass SLAVE explicitly: fc04's addr default binds at def-time (=30).
     VALID_REQ = fc04(0x0006, 1, SLAVE)   # identification read
     print(f"raw-master target: {args.build} build, address {SLAVE}")
@@ -376,9 +377,13 @@ def main() -> int:
         libm2k.contextClose(ctx)
 
     if not args.no_poller_restart:
-        api("/wind/start", {"type": args.build, "addr": SLAVE,
+        # tester poll type is speed|direction only; combined polls fine as
+        # either — use direction (reliably live from the divider).
+        poller_type = "direction" if args.build in ("direction", "combined") \
+            else "speed"
+        api("/wind/start", {"type": poller_type, "addr": SLAVE,
                             "interval_ms": 3000})
-        print(f"\ntester poller restarted ({args.build} @ {SLAVE}, 3 s)")
+        print(f"\ntester poller restarted ({poller_type} @ {SLAVE}, 3 s)")
 
     fails = [x for x in RESULTS if not x[1]]
     print(f"\n{'ALL PASS' if not fails else 'FAILURES: ' + str(len(fails))}"

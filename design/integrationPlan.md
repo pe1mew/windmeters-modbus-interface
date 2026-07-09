@@ -378,7 +378,11 @@ the per-sensor averaging cursors verified live via the FR-S30 dance with
 both sensors (bit 0 +1.6 s = both first windows, bit 1 +9.4 s = both
 cursors filled); direction offset→angle 0–1 LSB; full FC03/06/16 protocol
 + three-way atomicity + FR-S31; five silent addresses; served delta 80/80;
-DUT and master CRC counters zero. An adversarial multi-agent review of the
-diff found no confirmed defects. Retiring the single-sensor variants
+DUT and master CRC counters zero. The byte-exact raw suite
+(`rs485_raw_check.py --build combined`) is also green — split 10/10,
+floods 3/3 (incl. 60 s soak), baud ±3%, latency 1000/1000 at
+4.07/4.12/4.17/4.35 ms — so the combined build has the full §9.1
+treatment, matching the single builds. An adversarial multi-agent review
+of the diff found no confirmed defects. Retiring the single-sensor variants
 remains a separate decision (TDS §5 rework: FR-S01/S02/S03/S32/FR-MB27
 assume two variants).

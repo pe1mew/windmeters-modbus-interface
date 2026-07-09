@@ -104,8 +104,11 @@ version 1 will be tagged `fw-v1` at the first release.
   train (`m2k_pulse.py`): one FC04 image carries dir 182.8° + speed 29.4 m/s
   (count 30, gust 29.4, dir-raw at 30013), the per-cursor averaging verified
   live via the FR-S30 dance (both first windows + both cursors filled), full
-  protocol/atomicity/FR-S31, served delta exact. An adversarial multi-agent
-  review of the diff found no confirmed defects.
+  protocol/atomicity/FR-S31, served delta exact. The byte-exact raw suite
+  (split 10/10, floods 3/3 incl. 60 s soak, baud ±3%, latency 1000/1000) is
+  also green on combined — the full §9.1 treatment, matching the single
+  builds. An adversarial multi-agent review of the diff found no confirmed
+  defects.
 
 ### Added — HIL harness (`software/hil/`)
 
