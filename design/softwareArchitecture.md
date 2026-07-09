@@ -48,6 +48,9 @@ Initialization before the loop follows the FR-S18 order strictly:
 PC2/DE low first → PC4 address latch → sensor front-end ready (ADC
 self-calibration / TIM2 clear) → IWDG on → USART1 receiver enabled last.
 
+*See [§7](#7-diagrams-uml) for the component, super-loop sequence, and
+Modbus state-machine diagrams.*
+
 ## 3. Key decisions and why
 
 **Everything stateful lives in the main loop.** Modbus registers are written
@@ -122,3 +125,45 @@ limit trivially.
 define. Driver development happens standalone per
 `design/driverDevelopment.md`; this document is the contract the drivers
 integrate back into.
+
+## 7. Diagrams (UML)
+
+These reflect the **shipped** implementation — zero-ISR, remap-switching
+line discipline, three build variants (speed / direction / combined), and
+FR-S39 holding-register persistence — which supersedes some earlier phrasing
+above (e.g. the pre-amendment HDSEL/ISR wording in §3). Sources live in
+[`design/diagrams/`](diagrams/) as PlantUML; regenerate the PNGs with:
+
+```sh
+"C:/apps/plantuml/plantuml.exe" -tpng -o . design/diagrams/*.puml
+```
+
+### 7.1 Component diagram — module structure & data flow
+
+![Firmware component diagram](diagrams/component.png)
+
+Source: [`diagrams/component.puml`](diagrams/component.puml). The sensor →
+driver → measurement → **`regs` hub** → Modbus pipeline, with the
+cross-cutting `main` super-loop, `board` safety services and `sensors.h`
+build-variant gating, and the `avg` / `circmean` / `persist` satellites off
+the hub. Solid = runtime data/calls, dotted = compile-time or control.
+
+### 7.2 Super-loop sequence — one cooperative iteration (see §2, §3)
+
+![Super-loop sequence diagram](diagrams/superloop_sequence.png)
+
+Source: [`diagrams/superloop_sequence.puml`](diagrams/superloop_sequence.puml).
+One pass of the zero-ISR loop: `mb_poll` (polled RX with the request/response
+handled in-line) → `regs_service` → `regs_persist_service` (flash only on a
+change, and only after the response) → the measurement services → the
+PVD-gated watchdog feed. No interrupts, so there is no concurrency surface.
+
+### 7.3 Modbus RTU line discipline — state machine (see §3)
+
+![Modbus RTU line-discipline state machine](diagrams/modbus_state.png)
+
+Source: [`diagrams/modbus_state.puml`](diagrams/modbus_state.puml). The
+remap-switching RX/TX discipline: unsynced → idle → receiving → evaluate →
+`Responding` (Tx-phase / Rx-phase composite) → idle. HDSEL was abandoned per
+the amendment in §1; DE timing and t3.5 gaps carry their FR IDs on the
+transitions.

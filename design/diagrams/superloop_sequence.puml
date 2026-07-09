@@ -1,0 +1,61 @@
+@startuml superloop_sequence
+title Windmeters Modbus Interface — Zero-ISR Super-Loop (one iteration)
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam ParticipantBackgroundColor #F5F7F7
+skinparam ParticipantBorderColor #5B6B6A
+skinparam ArrowColor #14746F
+
+participant "main\n(super-loop)" as main
+participant "mb\n(Modbus)" as mb
+participant "regs\n(registers)" as regs
+participant "persist\n(flash)" as persist
+participant "meas_speed\nmeas_dir" as meas
+participant "board\n(watchdog)" as board
+
+note over main
+  Cooperative, run-to-completion, NO interrupts:
+  a byte takes ~1042 µs at 9600 baud while the loop
+  revisits every module in ~1 µs, so polled RX
+  cannot miss a byte (softwareArchitecture.md §4).
+end note
+
+loop every main-loop pass
+  main -> mb : mb_poll()
+  activate mb
+  mb -> mb : drain USART RX (polled)
+  alt complete request framed (t3.5 idle gap)
+    mb -> regs : input_read() / holding write\n(validate: range, FR-S31)
+    regs --> mb : value / atomic commit
+    mb -> mb : remap PD6→TX, DE high (FR-MB04),\nshift response, DE low, remap→RX
+    mb --> master : response frame
+  else no / partial frame
+    mb -> mb : keep waiting (no block)
+  end
+  deactivate mb
+
+  main -> regs : regs_service()
+  note right : FR-S30 — clear averaging\non a 40002/40003 change
+
+  main -> regs : regs_persist_service()
+  alt a holding register changed
+    regs -> persist : persist_save()  ~6 ms
+    note right : after the response, so the\nflash op is off the FR-MB20/21 path
+  end
+
+  main -> meas : meas_speed_service()\nmeas_dir_service()
+  note right : internally paced;\npublish on each 40002 window
+
+  opt 1 s elapsed
+    main -> regs : regs_second_tick()  (uptime, pulse-age)
+  end
+
+  main -> board : board_power_ok()
+  alt rail healthy (PVD)
+    main -> board : board_iwdg_feed()
+  else brown-out — withhold feed
+    board -> board : IWDG expires →\nreset into defined state (FR-S22)
+  end
+end
+@enduml

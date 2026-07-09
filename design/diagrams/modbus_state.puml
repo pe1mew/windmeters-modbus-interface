@@ -1,0 +1,45 @@
+@startuml modbus_state
+title Windmeters Modbus Interface — Modbus RTU Line Discipline (mb driver)
+
+skinparam shadowing false
+skinparam state {
+  BackgroundColor #F5F7F7
+  BorderColor #5B6B6A
+  ArrowColor #14746F
+}
+
+[*] --> Unsynced : reset
+
+Unsynced : discard everything until\nthe bus is quiet (FR-S19)
+Unsynced --> Idle : t3.5 bus-idle observed
+
+Idle : RX armed on PD6 (default remap),\nDE low = receiver enabled
+Idle --> Receiving : byte received
+
+Receiving : accumulate bytes into the\n256-byte ADU buffer (FR-MB24)
+Receiving --> Receiving : next byte within t3.5
+Receiving --> Idle : FE / ORE poisons the frame\n(silent discard, FR-MB24)
+Receiving --> Evaluate : t3.5 inter-frame gap\n(frame end, FR-MB03)
+
+Evaluate : check CRC-16 then address
+Evaluate --> Idle : bad CRC (FR-MB02) /\nother address or broadcast (FR-MB05/06) /\nrunt — silent discard
+Evaluate --> Responding : valid frame addressed to us
+
+state Responding {
+  [*] --> TxPhase : remap PD6→TX (partial remap 2),\nassert DE before first start bit (FR-MB04)
+  TxPhase : dispatch FC03/04/06/16;\npolled TX of the response (or exception 01/02/03)
+  TxPhase --> RxPhase : last stop bit sent (TC),\nde-assert DE within one char (FR-MB04)
+  RxPhase : remap PD6→RX (default map),\nflush self-echo (FR-MB23)
+  RxPhase --> [*]
+}
+
+Responding --> Idle : re-arm; latency ≤ 15/100 ms (FR-MB20/21)
+
+note as MBN
+  Polled, zero-ISR: mb_poll() advances this
+  machine each loop pass; mb_send() runs the
+  Responding sub-states synchronously.
+  HDSEL abandoned — remap-switching RX/TX
+  eliminates the first-byte-after-idle loss.
+end note
+@enduml

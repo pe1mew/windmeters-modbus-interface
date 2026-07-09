@@ -1,0 +1,68 @@
+@startuml component
+title Windmeters Modbus Interface — Firmware Component Diagram
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #14746F
+skinparam component {
+  BackgroundColor #F5F7F7
+  BorderColor #5B6B6A
+}
+
+' ---- external nodes ----
+actor "Modbus master\n(RS-485)" as master
+component "anemometer\nreed pulses / PC1" as anem #FFFFFF
+component "wind vane\npot / PA2 ADC"    as vane #FFFFFF
+
+' ---- orchestration & platform (cross-cutting) ----
+component "main\nzero-ISR super-loop" as main #EAEFEF
+component "board\nIWDG · PVD · address" as board #EAEFEF
+component "sensors.h\nbuild variant → capabilities" as sensors #EAEFEF
+
+' ---- Modbus + register hub ----
+component "mb\nModbus RTU driver (USART1/PD6)" as mb
+component "regs\nregister image (hub)" as regs #DCEBE9
+
+' ---- measurement pipeline ----
+component "meas_speed\nwindow · scale · cutoff" as ms
+component "meas_dir\n10 Hz · offset · fault"    as md
+component "ws\nTIM2 pulse count" as ws
+component "wd\nADC + float detect" as wd
+
+' ---- helpers / storage ----
+component "avg\nboxcar + circular mean" as avg
+component "circmean\nQ15 sine · CORDIC" as cm
+component "persist\nflash store · FR-S39" as persist
+
+' ==== data flow (sensor → bus) ====
+anem --> ws  : PC1 pulses
+vane --> wd  : PA2 ADC
+ws  --> ms   : window count
+wd  --> md   : raw16 / float
+ms  --> regs : publish_speed\n(30002/30005)
+md  --> regs : dir_update / publish\n(30001/30003/30013)
+regs <--> mb : regs_cfg:\nholdings · input_read · FR-S31
+mb  <--> master : RTU frames\nFC03/04/06/16
+
+' ==== helpers / storage ====
+regs --> avg : add / read
+avg  --> cm  : atan2
+md   ..> cm  : sin/cos
+regs <--> persist : load (boot) / save (FR-S39)
+
+' ==== orchestration (compile-time / control) ====
+main ..> mb    : mb_poll (each loop)
+main ..> regs  : service / persist_service
+main ..> ms    : service
+main ..> md    : service
+main ..> board : iwdg_feed / power_ok
+board --> regs : latched mb_address
+sensors ..> ws : "compile-time gate\n(ws+meas_speed and/or wd+meas_dir)"
+
+legend right
+  solid = runtime data / calls
+  dotted = compile-time or control
+  regs is the central register hub
+endlegend
+@enduml
