@@ -127,12 +127,14 @@ version 1 will be tagged `fw-v1` at the first release.
   (second-MAX3485 raw master on M2K DIO0/DIO1: split frames, garbage
   floods incl. 60 s soak, baud margin to ±3%, 1000-request latency
   histogram ~4.1 ms — §9.1 byte-exact set green on both builds).
-- **§9.1 (MAX3485 rig) complete for both variants** over real RS-485
-  (speed at addr 30, direction at addr 31) — the only remaining §9.1 row
-  is the FR-S38 direction float-fault, which needs a physical PA2
-  disconnect. Enabled by a second MAX3485 as an M2K-driven raw master
-  (byte-exact malformed vectors) and the tester's machine API as a
-  well-formed scripted master returning raw wire frames.
+- **§9.1 (MAX3485 rig) complete on all three variants** over real RS-485
+  (speed 30, direction 31, combined 32). Enabled by a second MAX3485 as an
+  M2K-driven raw master (byte-exact malformed vectors) and the tester's
+  machine API as a well-formed scripted master returning raw wire frames.
+  The last row, **FR-S38 wind-direction float-fault + recovery, was
+  validated over the transceiver** (`rs485_float_check.py`): PA2 wiper
+  lifted → DIR_FAULT + 65535 sentinels (fault 4/4); re-driven → sticky
+  fault clears, real angle returns (recovery 4/4).
 - `acceptance/`: pytest suite (NFR-TST01 core) — one command per flashed
   variant; **green on both builds** (speed 6/6, direction 6/6), including
   build-gate checks and an opt-in reproducible-build comparison.

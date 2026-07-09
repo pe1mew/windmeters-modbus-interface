@@ -286,10 +286,18 @@ counters zero. Raw byte-exact vectors via the second MAX3485 also green
 on this build: split 10/10 (DUT CRC counter +20), garbage floods 3/3
 (10× 2 s flood, 60 s soak, 10× 400-byte oversize), baud margin to ±3%,
 and the 1000-request latency histogram 1000/1000 at 4.07/4.12/4.17/
-4.44 ms. PA2 was driven from the divider (method of record) throughout;
-the FR-S38 float-fault path is the one direction row still requiring a
-physical PA2 disconnect (noted for the next bench pass). §9.1 is now
-complete for both builds bar that single float-fault row.
+4.44 ms.
+
+**FR-S38 float-fault + recovery over the transceiver — DONE 2026-07-08.**
+With PA2's wiper physically lifted (`rs485_float_check.py --expect fault`):
+DIR_FAULT (status bit 2) set and dir_instant/dir_avg read the 65535
+sentinel, detected independent of the drifting floating-pin ADC. Re-driven
+(`--expect driven`): the sticky fault clears and the real angle returns
+(181.5°). Validated on the combined build (addr 32); the `wd_wiper_floating`
+detector + fault path is the identical `HAVE_WIND_DIRECTION` code the
+direction build runs (only the raw-ADC register differs). **§9.1 is now
+complete on all three builds** — every pre-PCB transceiver row passes;
+only the §9.2 real-PCB rows remain.
 
 ### 9.2 With the real PCB (product hardware)
 

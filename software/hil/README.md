@@ -46,6 +46,7 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
 | `rs485_regs_check.py` | Full TDS §2.7/§2.8 register read/write matrix over RS-485 via the tester's machine API; `--build speed\|direction\|combined` | PASS: speed 62/62, direction 72/72 (2026-07-06), **combined 77/77** (2026-07-08, `--speed-live`) |
 | `rs485_raw_check.py` | Byte-exact §9.1 vectors via second-MAX3485 raw master: split frames, garbage floods, off-baud, 1000-request latency histogram | PASS 2026-07-06, all groups (both builds) |
 | `m2k_pulse.py` | M2K W2 (AWG) → PC1 speed pulse train; holds the context open (+V+ keepalive) so another process runs the matrix concurrently | used for combined `--speed-live` |
+| `rs485_float_check.py` | FR-S38 wind-direction float-fault + recovery over RS-485 (`--expect fault\|driven`, `--build direction\|combined`) | PASS 2026-07-08, fault 4/4 + recovery 4/4 |
 
 ## Bench wiring notes
 
