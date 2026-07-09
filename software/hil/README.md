@@ -48,6 +48,7 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
 | `m2k_pulse.py` | M2K W2 (AWG) → PC1 speed pulse train; holds the context open (+V+ keepalive) so another process runs the matrix concurrently | used for combined `--speed-live` |
 | `rs485_float_check.py` | FR-S38 wind-direction float-fault + recovery over RS-485 (`--expect fault\|driven`, `--build direction\|combined`) | PASS 2026-07-08, fault 4/4 + recovery 4/4 |
 | `rs485_persist_check.py` | FR-S39 holding-register persistence across a watchdog reset (`*_test` build); write → reset → assert settings survive | PASS 2026-07-08, 7/7 |
+| `m2k_vplus_check.py` | DUT powered from M2K V+: ratiometric ADC VDD sweep (P2-WD-RATIO) + FR-S39 persistence across a real power cycle. Guards against driving V+ into a live LinkE rail | PASS 2026-07-09, 6/6 |
 
 ## Bench wiring notes
 

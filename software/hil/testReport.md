@@ -6,12 +6,12 @@ Hardware-in-the-loop (HIL) testing on this project means the CH32V003 device-und
 
 | Area | Tests | Passing | Notable pending |
 |---|---|---|---|
-| Driver-phase HIL | 29 | 27 | P1-WS-BOUNCE (reed-relay bounce realism), P2-WD-RATIO (M2K-powered VDD sweep); FR-MB04/24/03 asserts within P3-MB-DEFERRED deferred to the MAX3485 rig / acceptance |
+| Driver-phase HIL | 29 | 28 | P1-WS-BOUNCE (reed-relay bounce realism — needs a physical anemometer); FR-MB04/24/03 asserts within P3-MB-DEFERRED deferred to the MAX3485 rig / acceptance |
 | Integration-stage HIL | 18 | 17 | INT-F-BUILD-02 (NFR-BLD01 reproducible-build hash compare, opt-in `-m reproducible`) |
 | MAX3485-rig HIL (§9.1) | 20 | 20 | — (FR-S38 float-fault + recovery now validated) |
 | Combined variant (`wind_combined`) | 4 | 4 | — |
-| Persistence (FR-S39) | 2 | 2 | — |
-| **Totals** | **73** | **70** | **3 deferred / opt-in (see Pending section)** |
+| Persistence (FR-S39) | 3 | 3 | — |
+| **Totals** | **74** | **72** | **2 deferred / opt-in (see Pending section)** |
 
 > Test counts include NOT-RUN/DEFERRED/PENDING rows so the matrix is honest; those rows are excluded from the "Passing" column. INT-F-BUILD-02 is present and available but is opt-in and was not part of the core stage-F green run, so it is counted as not-yet-passing here.
 
@@ -97,7 +97,7 @@ Common rig (`driverDevelopment.md` §2.3–2.5): DUT is a **CH32V003J4M6 (SOP-8)
 | P2-WD-STAB | Wind direction stability at mid position | Same rig; W1 fixed at 1.65 V; 12 s capture (~10+ D-reports); `wd_check.py` | Oversampled reading stable to within a few LSB | ≥8 reports AND raw16 span ≤ 48 (3 LSB ×16) | **PASS** 2026-07-03 (§4.3): "stability **0.6 LSB over 11 s**". Part of the MET exit criteria | FR-S10, FR-S28 |
 | P2-WD-FLOAT | Wind direction float/open-wiper detection (FR-S38) | Same rig; "driven" phase W1 active (flt=0), "open" phase disable W1 and re-read (flt=1 if truly open); `wd_check.py` | flt=0 while driven; flt=1 on a truly open pin (manual wire-pull confirms) | driven: all flt == 0. open: flt == 1 preferred; a disabled AWG that doesn't float is inconclusive-but-not-a-DUT-failure (still PASS) | **PASS** 2026-07-03 (§4.3): "float detector flt=1 on a truly open pin, flt=0 for pot-like (5 kΩ) and AWG (50 Ω) sources". FR-S38 recovery timing deferred to integration | FR-S38 |
 | P2-WD-CIRCMEAN | Circular-mean self-test (host + on-target); avg==inst at DC | Host: gcc unit tests over all 3600 angles (`common/circmean`); on-target `CM,PASS` boot line + avg==inst at DC; `wd_check.py` + host tests | Identity exact; CORDIC error tiny; on-target self-test passes; avg==inst under DC | host: identity 0 LSB over all 3600, CORDIC ≤ 0.0035°; on-target `CM,PASS`; avg-vs-inst worst dev ≤ 2 (×0.1°) | **PASS** 2026-07-03 (§4.3): "identity **0 LSB over all 3600 angles**, CORDIC ≤ 0.0035°" + on-target boot `CM,PASS`. ADC self-calibration confirmed in `wd_init()`; ADC clock HCLK/8 | FR-S14 |
-| P2-WD-RATIO | Wind direction ratiometric sanity (VDD 3.0–3.6 V sweep) | M2K programmable supply powers DUT VDD across 3.0–3.6 V with a fixed divider on PA2 (§4.3 row); not in `wd_check.py`'s default flow | Reported angle unchanged ±2 LSB across the VDD sweep (ratiometric ADC) | angle constant to ±2 LSB across 3.0–3.6 V | **NOT-RUN / DEFERRED** — §4.3: "Deferred to acceptance: 5-ratio sweep, M2K-powered VDD sweep, FR-S12 offset-register wrap (logic host-proven)." Topology exercised implicitly by the accuracy row, but the explicit VDD sweep was not run at driver phase | FR-S38 (ratiometric) |
+| P2-WD-RATIO | Wind direction ratiometric sanity (VDD 3.0–3.6 V sweep) | DUT powered from **M2K V+** (LinkE 3V3 lifted) with the divider on PA2; sweep V+ 3.6→3.0 V and read the angle + raw ADC via the tester (`m2k_vplus_check.py`) | Reported angle + raw ADC unchanged across the VDD sweep (the divider tracks VDD, ADC ref is VDD → ratiometric) | ADC span ≤ 15 LSB and angle span ≤ 2.0° across 3.0–3.6 V | **PASS 2026-07-09** (combined build @ 32, pre-teardown). ADC span **1 LSB** (517→518), angle span **0.5°** (182.0→182.5°) across 3.6→3.0 V; still read cleanly at 3.0 V (MAX3485 minimum) | FR-S38 (ratiometric) |
 | P3-MB-READS | Modbus reads: FC04 single/multi, FC03 all holdings, byte order | TTL rig (§5.2): M2K DIO0 open-drain 9600 8N1 master + pull-up + Saleae ch8; PC2 → ch15; slave addr 30; raw-edge software UART decode; `mb_check.py` | FC04 single → {30,04,02,0x04,0xD2}+CRC; FC04 multi → {30,04,04,00,FA,03,84}+CRC; FC03 → {30,03,08,…defaults…}+CRC | Each response bytes == expected frame (payload+CRC) exactly | **PASS** 2026-07-03 (§5.3 / modbus_rtu README "PASS, TTL rig"). Part of 26/26 matrix vectors | FR-MB08, FR-MB09, FR-MB25 |
 | P3-MB-SILENCE | Modbus silence: wrong addr, broadcast, bad CRC + diag counter | Same TTL rig; FC04 to addr 247, broadcast FC06 to addr 0, corrupted-CRC frame; read CRC-error counter (reg 8) before/after; `mb_check.py` | No reply to any of the three; the CRC-error diagnostic counter increments by exactly 1 after the bad-CRC frame | response == b'' for all three; crc_after == crc_before + 1 | **PASS** 2026-07-03 (§5.3, 26/26). Bad-CRC last-frame stash was the diagnostic that cracked the first-byte-loss hunt (README) | FR-MB02, FR-MB05, FR-MB06 |
 | P3-MB-EXC | Modbus exceptions: FC01 / unmapped / spanning / quantity | Same TTL rig; FC01, FC04 unmapped @0x20, FC04 spanning 0x0E qty 2, FC04 qty 0, FC04 qty 126, FC06 unmapped @0x20; `mb_check.py` | {30,81,01}; {30,84,02}; {30,84,02}; {30,84,03}; {30,84,03}; {30,86,02} — each +CRC | Each response == the expected exception frame exactly | **PASS** 2026-07-03 (§5.3, 26/26) | FR-MB12, FR-MB13, FR-MB14, FR-MB15, FR-MB28 |
@@ -188,6 +188,7 @@ read-back-verified). Validated on the `wind_combined_test` build at address
 | ID | Test | Setup / stimulus | Expected | Pass criteria | Result | Req refs |
 |---|---|---|---|---|---|---|
 | PERSIST-01 | Settings survive a reset | `rs485_persist_check.py`: write non-defaults via FC16 → trigger watchdog reset (0x00FF := 0xDEAD) → read back; then restore defaults + reset again | Written values survive the reset (not reverted to §2.8 defaults); blank store → defaults; ping-pong handles successive saves | 7/7 assertions | **PASS** 2026-07-08, 7/7. Blank store booted to defaults [0,1000,10,4]; wrote [900,2000,20,10] → watchdog reset (uptime 6→0) → read back [900,2000,20,10]; restored defaults survived a 2nd reset | FR-S39, FR-S21, FR-S20 |
+| PERSIST-02 | Settings survive a real power cycle | DUT on M2K V+; write non-defaults → **cut V+ entirely** (true power removal) → restore → read back (`m2k_vplus_check.py`) | Written values survive a cold-boot power cycle (exercises the flash read on a real power-on, not just a reset) | settings == written after V+ off/on; uptime reset | **PASS 2026-07-09** (combined @ 32). Wrote [900,2000,20,10] → V+ off ~1.8 s → on → read back [900,2000,20,10]; uptime 11→0. FR-S39's power-loss path on the real supply | FR-S39, FR-S22 |
 | PERSIST-REV | Adversarial flash-code review | 4-lens review (flash sequence vs ch32v003fun flashtest, ping-pong atomicity, integration/latency, region safety) + verify pass | No confirmed correctness/safety defects | 0 confirmed of 5 candidates | **PASS** 2026-07-08. All 5 refuted as latent-not-defect; two hardened anyway — init reorder (load persistence before meas latches the window) and a read-back verify + bounded retry in persist_save. Re-validated 7/7 | — |
 
 ## Pending / not yet run
@@ -195,7 +196,12 @@ read-back-verified). Validated on the `wind_combined_test` build at address
 The following HIL rows are not yet executed and why:
 
 - **P1-WS-BOUNCE — reed-relay bounce realism (DEFERRED).** Hardware-only; deferred until a physical reed relay / anemometer through the scratchBook RC debounce filter is on the rig. The one row of the wind-speed 5-row matrix not in the automated 9/9 pass.
-- **P2-WD-RATIO — M2K-powered VDD sweep (DEFERRED to acceptance).** The ratiometric topology is exercised implicitly by the accuracy row, but the explicit 3.0–3.6 V VDD sweep (and the 5-ratio divider sweep, and FR-S12 offset-register wrap, which is host-proven) is deferred to acceptance per `driverDevelopment.md` §4.3.
+- **5-ratio divider accuracy sweep (DEFERRED to real-PCB acceptance).** The
+  M2K-powered VDD sweep is now done (P2-WD-RATIO); the remaining end-to-end
+  accuracy across multiple divider ratios is deferred to the finished board
+  + calibration (TDS §5), where the M2K's absolute-voltage inaccuracy no
+  longer applies. FR-S12 offset-register wrap is host-proven and also
+  validated on-wire (INT-D-DIR-01 / R485-DIR-14).
 - **P3-MB-DEFERRED — FR-MB04/24/03 asserts at driver phase (DEFERRED, now largely satisfied).** These were deferred from the TTL driver phase to the MAX3485 rig / acceptance; the RS-485 rows above (R485-DE-01, R485-FLOOD-08/08D, R485-SPLIT-07/07D) now assert them on real transceivers.
 - **INT-F-BUILD-02 — NFR-BLD01 reproducible build (OPT-IN, not run in the core suite).** Available as `pytest -m reproducible`; it was not part of the core stage-F green run and has no recorded hash numbers.
 - **NFR-TST01 backlog (tracked, non-blocking).** From INT-F-SUITE-DIR: FR-S21 reset-matrix pytest, an FR-MB20/21 latency histogram in-suite, the 5-ratio divider sweep, the M2K-V+ VDD sweep, and an on-target FR-S14 alternating-stimulus row via W1.
