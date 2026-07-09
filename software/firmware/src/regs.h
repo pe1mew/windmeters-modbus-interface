@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "mb.h"
+#include "sensors.h"
 
 // Register image (integrationPlan.md stage C): the complete TDS §2.7/§2.8
 // map on the mb driver interface. Per-build applicability per FR-MB27:
@@ -28,11 +29,11 @@ void regs_service(void);        // FR-S30: watch 40002/40003, clear the
                                 // averaging accumulator on change
 void regs_second_tick(void);    // uptime (FR-S34) + pulse-age (FR-S36)
 void regs_window_aborted(void); // FR-S30: 40002 write aborted the window
-#ifdef SENSOR_WIND_SPEED
+#ifdef HAVE_WIND_SPEED
 // Per closed window: raw count (30005) + scaled/cut-off value (30002).
 void regs_publish_speed(uint16_t count, uint16_t inst_0_1ms);
 #endif
-#ifdef SENSOR_WIND_DIRECTION
+#ifdef HAVE_WIND_DIRECTION
 void regs_dir_update(uint16_t raw16, uint16_t angle_0_1deg, bool floating);
 // Per closed window: circular result (mean sin/cos of the samples, Q15).
 void regs_publish_dir_window(int16_t sin_q15, int16_t cos_q15);

@@ -154,6 +154,26 @@ MAX3485 breadboard rig, first session **2026-07-06**, before the PCB. The M2K + 
 | R485-DIR-14 | FR-S25/S26 direction offset→angle with 3600 wraparound over RS-485 (direction) | Direction (addr 31), PA2 driven from the divider; tester machine API; baseline angle at offset 0, then 40001 north offset → 900/1800/3599 (90°/180°/360°) via FC06, reading 30001 back each time; offset restored to 0; `rs485_regs_check.py --build direction` | Reported angle (30001) tracks the written north offset with exact 3600 wraparound (convention-agnostic ±); error ≤ 15 LSB, exact-to-0-LSB expected on this build | For each offset the angle shift == offset mod 3600 within ≤ 15 LSB; observed 0 LSB error | **PASS** 2026-07-06. Angle tracks the offset with **exact 3600 wraparound — 90°/180°/360° all 0 LSB error**, base 181.4° | FR-S25, FR-S26 |
 | R485-FLT-15 | FR-S38 direction float-fault path over RS-485 (**PENDING**) | Direction (addr 31) on the MAX3485 rig; requires PA2 **physically disconnected/floated** (the divider is the method-of-record for all other direction rows, so it was connected this session); `rs485_regs_check.py --build direction` with PA2 floated | With PA2 floated: DIR_FAULT (status bit 2) set, 30001/30003 read the 65535 fault sentinel, over the real transceiver and read via Modbus | status bit 2 set AND 30001/30003 == 65535 with PA2 floated (to be asserted next bench pass) | **PENDING — needs PA2 floated.** Not run 2026-07-06 because PA2 was divider-driven (method of record) all session; the one §9.1 row still requiring a physical PA2 disconnect. Noted for the next bench pass. (The float path was separately exercised end-to-end on the **TTL rig in stage C** — INT-C-DIR-01 — but not through the MAX3485 transceiver) | FR-S38 |
 
+### Combined variant (`wind_combined`, 2026-07-08)
+
+The third build (integrationPlan §10) serves both sensors from one Modbus
+slave at address 32/37 (build byte 0x03). Rig: the tester as scripted
+master via its machine API, the divider on PA2 (direction), and a 30 Hz
+M2K **W2 (AWG) → PC1** pulse train (`m2k_pulse.py`) for the anemometer —
+independent of the DIO raw master, which stays powered + passive. Both
+sensors live simultaneously.
+
+| ID | Test | Setup / stimulus | Expected | Pass criteria | Result | Req refs |
+|---|---|---|---|---|---|---|
+| CMB-REG-01 | Full register matrix, both sensors live | Combined @ 32; tester API master; divider on PA2 + W2→PC1 30 Hz; `rs485_regs_check.py --build combined --speed-live` | Identity 0x0301; one FC04 image carries dir + speed; 30005 = speed count, 30013 = direction raw ADC; map edge 0x000D; FC03/06/16 + three-way atomicity + FR-S31; offset→angle wrap; FR-S30 status dance with both sensors; 5 silent addresses; served delta exact; CRC zero | **77/77** assertions pass | **PASS** 2026-07-08. dir 182.8° + speed 29.4 m/s (count 30 = 30 Hz×1 s, gust 29.4, dir-raw 30013 = 520); speed math exact (30002 == formula(30005)); FR-S30 bit 0 +1.6 s (both first windows), bit 1 +9.4 s (both averaging cursors filled); offset→angle 0–1 LSB; served delta 80/80; DUT+master CRC zero | FR-S01/S02/S03/S32, FR-MB05/13/14/15/19/22/25/27/30, FR-S12/S25/S26/S30/S31, TDS §10 |
+| CMB-REV-02 | Adversarial diff review (per-cursor avg, register-map/status coherence, build-flag coverage, init/concurrency) | 4-lens multi-agent review + adversarial verify pass over the wind_combined diff | No confirmed correctness defects | 0 confirmed findings after verification | **PASS** 2026-07-08. 1 candidate (status bit-0 clear timing) raised and refuted — both averagers share the 40002 boundary so the skew is one loop pass, unobservable over Modbus | — |
+
+Sizes: **6812 B flash / 1192 B RAM** (ceilings 14336/1792); single-sensor
+builds unchanged. Not yet run on the combined build: the byte-exact raw
+suite (`rs485_raw_check.py --build combined` — protocol code is shared and
+unchanged from the single builds, so this is low-risk) and the FR-S38
+float-fault (shares the single-direction pending status).
+
 ## Pending / not yet run
 
 The following HIL rows are not yet executed and why:

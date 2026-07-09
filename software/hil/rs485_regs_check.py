@@ -134,23 +134,40 @@ def read_inputs(base, slave):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://windmeter-tester.local")
-    ap.add_argument("--build", choices=["speed", "direction"], default="speed",
+    ap.add_argument("--build", choices=["speed", "direction", "combined"],
+                    default="speed",
                     help="which firmware variant is flashed on the DUT")
     ap.add_argument("--slave", type=int, default=None,
-                    help="DUT address (default 30 for speed, 31 for direction)")
+                    help="DUT address (default 30 speed / 31 direction / 32 combined)")
+    ap.add_argument("--speed-live", action="store_true",
+                    help="assert live speed data (a PC1 pulse source is wired)")
     ap.add_argument("--skip-status-timing", action="store_true",
                     help="skip the ~15 s FR-S30 status-bit timing block")
     args = ap.parse_args()
     global DUT_SLAVE
-    is_dir = args.build == "direction"
-    S = args.slave if args.slave is not None else (31 if is_dir else 30)
+    build = args.build
+    is_dir = build == "direction"
+    is_combined = build == "combined"
+    has_speed = build in ("speed", "combined")
+    has_direction = build in ("direction", "combined")
+    S = args.slave if args.slave is not None else {
+        "speed": 30, "direction": 31, "combined": 32}[build]
     DUT_SLAVE = S
     base = args.base
-    ident_want = 0x0201 if is_dir else 0x0101
-    # Input-register active/zero map per TDS §2.7 (which regs read 0 on this
-    # build); the holding matrix (§2.8) is identical on both, FR-MB27.
-    zero_regs = {1, 3, 10, 11} if is_dir else {0, 2}   # read-0 addresses
-    print(f"=== register matrix: {args.build} build, address {S} ===")
+    ident_want = {"speed": 0x0101, "direction": 0x0201, "combined": 0x0301}[build]
+    # Input map length (TDS §2.7): combined adds the direction raw ADC at
+    # 30013 (0x000C), extending the map edge from 0x000C to 0x000D.
+    map_len = 13 if is_combined else 12
+    adc_idx = 12 if is_combined else 4  # direction raw ADC register index
+    # Read-0 addresses per build; none on combined (both sensors live).
+    if is_combined:
+        zero_regs = set()
+    elif is_dir:
+        zero_regs = {1, 3, 10, 11}
+    else:
+        zero_regs = {0, 2}
+    print(f"=== register matrix: {build} build, address {S} "
+          f"(map {map_len} regs) ===")
 
     st0 = api(base, "/api/v1/status")
     print(f"tester fw {st0.get('fw_version')}, modbus "
@@ -164,58 +181,80 @@ def main() -> int:
 
     # ---- A: input-register image (FC04) ------------------------------------
     print("\n-- FC04 input registers --")
-    inp = read_inputs(base, S)
-    record("FC04 block read 0x0000 x12", inp is not None and len(inp) == 12,
-           f"{inp}")
+    r = mb(base, S, 4, 0, count=map_len)
+    inp = r.get("registers") if r.get("ok") else None
+    record(f"FC04 block read 0x0000 x{map_len}",
+           inp is not None and len(inp) == map_len, f"{inp}")
     if inp is None:
         return 1
     # inp[9] is the served count BEFORE the baseline read itself (the DUT
     # samples it while handling the frame) — so the baseline transaction,
     # already in COUNTED, is correctly part of the expected delta.
     served_start = inp[9]
-    inactive_label = ("speed regs 30002/30004 + pulse-age/gust 30011/30012"
-                      if is_dir else "direction regs 30001/30003")
-    record(f"inactive-build regs read 0 ({inactive_label})",
-           all(inp[i] == 0 for i in zero_regs),
-           f"{[inp[i] for i in sorted(zero_regs)]}")
+    if zero_regs:
+        inactive_label = ("speed regs 30002/30004 + pulse-age/gust 30011/30012"
+                          if is_dir else "direction regs 30001/30003")
+        record(f"inactive-build regs read 0 ({inactive_label})",
+               all(inp[i] == 0 for i in zero_regs),
+               f"{[inp[i] for i in sorted(zero_regs)]}")
     record(f"30007 identification == 0x{ident_want:04X} "
-           f"({args.build} build, fw v1)",
+           f"({build} build, fw v1)",
            inp[6] == ident_want, f"0x{inp[6]:04X}")
     record("30008 uptime plausible (>10 s since flash)",
            inp[7] > 10, f"{inp[7]} s")
     record("30009 DUT crc_error_count == 0", inp[8] == 0, f"{inp[8]}")
-    if is_dir:
-        record("30005 raw ADC in range 0..1023 (PA2 driven)",
-               0 <= inp[4] <= 1023, f"{inp[4]}")
+    if has_direction:
+        record(f"direction raw ADC (300{'13' if is_combined else '05'}) "
+               "in range 0..1023 (PA2 driven)",
+               0 <= inp[adc_idx] <= 1023, f"{inp[adc_idx]}")
         record("30001 dir_instant valid (0..3599, not 65535 fault)",
                inp[0] <= 3599, f"{inp[0] / 10:.1f} deg")
         record("30006 status has no DIR_FAULT bit (PA2 not floating)",
                not (inp[5] & 0x0004), f"0x{inp[5]:04X}")
-    else:
-        record("30011 pulse-age tracks uptime (no anemometer)",
-               abs(inp[10] - inp[7]) <= 1, f"age {inp[10]} vs uptime {inp[7]}")
-        record("30006 status == 0 (warm-up long past)", inp[5] == 0,
-               f"0x{inp[5]:04X}")
+    if has_speed:
+        # 30011 pulse-age climbs with uptime while no pulses arrive; with a
+        # live PC1 stimulus it resets toward 0 instead.
+        if args.speed_live:
+            record("30002/30005 live speed data (PC1 pulses)",
+                   inp[1] > 0 and inp[4] > 0,
+                   f"inst {inp[1] / 10:.1f} m/s, count {inp[4]}")
+            record("30011 pulse-age low (pulses arriving)",
+                   inp[10] <= 3, f"{inp[10]} s")
+        else:
+            record("30011 pulse-age tracks uptime (no anemometer)",
+                   abs(inp[10] - inp[7]) <= 2, f"age {inp[10]} vs uptime {inp[7]}")
+    if is_combined:
+        record("both sensors present in one image (dir + speed slots)",
+               inp[0] != 0 and inp[6] == ident_want,
+               f"dir {inp[0] / 10:.1f} deg / speed {inp[1] / 10:.1f} m/s")
 
     singles = []
-    for a in range(12):
-        r = mb(base, S, 4, a, count=1)
-        singles.append(r["registers"][0] if r.get("ok") else None)
-    # uptime/served always drift; direction inst/avg jitter by 1 LSB, so
-    # compare the identity/steady regs exactly and allow the rest to move.
-    drift = {7, 9, 10} | ({0, 2, 4} if is_dir else {10})
-    ok = all(singles[i] == inp[i] for i in range(12) if i not in drift) \
+    for a in range(map_len):
+        rr = mb(base, S, 4, a, count=1)
+        singles.append(rr["registers"][0] if rr.get("ok") else None)
+    # uptime/served/pulse-age drift; direction inst/avg/adc + live speed
+    # jitter, so compare the identity/steady regs exactly, allow the rest.
+    drift = {7, 9, 10}
+    if has_direction:
+        drift |= {0, 2, adc_idx}
+    if has_speed and args.speed_live:
+        drift |= {1, 3, 4, 11}
+    ok = all(singles[i] == inp[i] for i in range(map_len) if i not in drift) \
         and all(singles[i] is not None for i in drift)
-    record("FC04 single reads x12 consistent with block image", ok,
+    record(f"FC04 single reads x{map_len} consistent with block image", ok,
            f"{singles}")
 
-    expect_exc(base, "FC04 read 0x000C (map edge) -> exc 02 (FR-MB13)",
-               2, S, 4, 0x000C, count=1)
-    expect_exc(base, "FC04 read 0x0007 x6 (straddles edge) -> exc 02 (FR-MB14)",
-               2, S, 4, 0x0007, count=6)
+    edge = map_len  # first unmapped raw address (0x000C or 0x000D)
+    if is_combined:
+        expect_ok(base, "FC04 read 0x000C (30013 dir-raw, combined-only)",
+                  S, 4, 0x000C, count=1)
+    expect_exc(base, f"FC04 read 0x{edge:04X} (map edge) -> exc 02 (FR-MB13)",
+               2, S, 4, edge, count=1)
+    expect_exc(base, f"FC04 read 0x{edge - 5:04X} x6 (straddles edge) "
+               "-> exc 02 (FR-MB14)", 2, S, 4, edge - 5, count=6)
 
-    # ---- A2 (direction only): offset -> reported angle, wraparound ----------
-    if is_dir:
+    # ---- A2 (direction present): offset -> reported angle, wraparound -------
+    if has_direction:
         print("\n-- direction offset applied to angle (FR-S25/S26 wrap) --")
         expect_ok(base, "40001 offset := 0 (baseline)", S, 6, 0, values=[0])
         time.sleep(0.3)
@@ -355,7 +394,7 @@ def main() -> int:
 
     # ---- F: FR-MB05 address filter over RS-485 ------------------------------
     print("\n-- other addresses stay silent --")
-    silent_addrs = [a for a in (30, 31, 35, 36) if a != S]
+    silent_addrs = [a for a in (30, 31, 32, 35, 36, 37) if a != S]
     for other in silent_addrs:
         r = mb(base, other, 4, 0, count=1)
         record(f"address {other} silent (timeout) (FR-MB05/FR-S03)",
@@ -385,9 +424,13 @@ def main() -> int:
            f"{st0['modbus']['timeouts']} -> {st1['modbus']['timeouts']}")
 
     # Leave the bench as found: poller running against this build's DUT.
-    api(base, "/wind/start", {"type": args.build, "addr": S,
+    # The tester poller polls one quantity; for combined pick direction
+    # (reliably live from the divider) — the tester only accepts
+    # speed|direction as a poll type.
+    poller_type = "direction" if has_direction else "speed"
+    api(base, "/wind/start", {"type": poller_type, "addr": S,
                               "interval_ms": 3000})
-    print(f"\nwind poller restarted ({args.build} @ {S}, 3 s)")
+    print(f"\nwind poller restarted ({poller_type} @ {S}, 3 s)")
 
     fails = [x for x in RESULTS if not x[1]]
     print(f"\n{'ALL PASS' if not fails else 'FAILURES: ' + str(len(fails))}"

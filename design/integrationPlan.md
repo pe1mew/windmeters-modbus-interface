@@ -350,4 +350,35 @@ variants) and less self-documenting addressing.
 **Recommendation:** introduce it as a *third* variant first
 (`wind_combined`, build type 0x03, direction-raw at 30013); retire the
 single-sensor variants only after the combined one has passed the full
-acceptance suite. **Decision deferred — TDS impact tracked in TDS §5.**
+acceptance suite.
+
+**IMPLEMENTED 2026-07-08.** Added as the third variant per the
+recommendation. Mechanism: `src/sensors.h` maps the three
+mutually-exclusive `-D SENSOR_WIND_*` selectors to capability macros
+`HAVE_WIND_SPEED`/`HAVE_WIND_DIRECTION` (combined sets both) + `BUILD_TYPE`;
+`meas_init`/`meas_service` split into per-sensor `meas_speed_*`/`meas_dir_*`
+(both run each loop, sharing the 40002 window boundary); `avg.c`
+restructured to a per-sensor cursor (`cur_s`/`cur_d`) so the two rings
+advance independently; `regs.c` carries the speed pulse count at 30005 and
+the direction raw ADC at the new 30013 (map edge extends 0x000C → 0x000D on
+this build only); `board.h` base address 32. Sizes: **6812 B flash /
+1192 B RAM** (ceilings 14336/1792); the single-sensor builds are
+unchanged. **Confirmed on silicon 2026-07-08**: answers at address 32 as
+0x0301, serves both register sets from one slave, 30013 reads the ADC,
+0x000D excepts, and status reaches 0 (both averaging cursors filled).
+
+**Full dual-sensor validation over RS-485: 77/77 (2026-07-08).**
+`rs485_regs_check.py --build combined --speed-live` at address 32 with
+BOTH sensors live — the divider on PA2 and a 30 Hz M2K W2 → PC1 pulse
+train (`software/hil/m2k_pulse.py`, the stage-D speed-stimulus method,
+independent of the DIO raw master). One FC04 image carries both
+quantities (dir 182.8° + speed 29.4 m/s, count 30 = 30 Hz × 1 s window,
+gust 29.4, 30013 dir-raw 520); speed math exact (30002 == formula(30005));
+the per-sensor averaging cursors verified live via the FR-S30 dance with
+both sensors (bit 0 +1.6 s = both first windows, bit 1 +9.4 s = both
+cursors filled); direction offset→angle 0–1 LSB; full FC03/06/16 protocol
++ three-way atomicity + FR-S31; five silent addresses; served delta 80/80;
+DUT and master CRC counters zero. An adversarial multi-agent review of the
+diff found no confirmed defects. Retiring the single-sensor variants
+remains a separate decision (TDS §5 rework: FR-S01/S02/S03/S32/FR-MB27
+assume two variants).

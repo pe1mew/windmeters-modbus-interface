@@ -7,10 +7,11 @@
 // Board bring-up (integrationPlan.md stage B): FR-S18 init order head,
 // FR-S03 jumper address, FR-S20 watchdog, FR-S22 PVD.
 
-#ifdef SENSOR_WIND_SPEED
+#if defined(SENSOR_WIND_COMBINED)
+#define BOARD_MB_BASE_ADDRESS 32 /* FR-S03: open = 32, bridged = 37 */
+#elif defined(SENSOR_WIND_SPEED)
 #define BOARD_MB_BASE_ADDRESS 30 /* FR-S03: open = 30, bridged = 35 */
-#endif
-#ifdef SENSOR_WIND_DIRECTION
+#elif defined(SENSOR_WIND_DIRECTION)
 #define BOARD_MB_BASE_ADDRESS 31 /* FR-S03: open = 31, bridged = 36 */
 #endif
 

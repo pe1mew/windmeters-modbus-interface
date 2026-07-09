@@ -43,8 +43,9 @@ flash (`pio`) → stimulate (ADALM2000 / libm2k) → observe (Saleae Logic 2 MCP
 | `wd_check.py` | Wind direction phase-2 matrix (AWG-based; superseded for accuracy rows by the divider method — see README notes) | superseded 2026-07-03 |
 | `mb_check.py` | Modbus RTU phase-3 matrix (26 vectors, TDS §2) + timing; M2K as open-drain bit-banged master | PASS 2026-07-03, 26/26 + 40/40 endurance |
 | `rs485_check.py` | MAX3485-rig passive judge of live master traffic: DE timing, storm, idle-bias, latency, wire CRC both directions | PASS 2026-07-06, 8/8 (117 transactions) |
-| `rs485_regs_check.py` | Full TDS §2.7/§2.8 register read/write matrix over RS-485, driven through the tester's machine API | PASS 2026-07-06, 62/62 (speed build) |
-| `rs485_raw_check.py` | Byte-exact §9.1 vectors via second-MAX3485 raw master: split frames, garbage floods, off-baud, 1000-request latency histogram | PASS 2026-07-06, all groups |
+| `rs485_regs_check.py` | Full TDS §2.7/§2.8 register read/write matrix over RS-485 via the tester's machine API; `--build speed\|direction\|combined` | PASS: speed 62/62, direction 72/72 (2026-07-06), **combined 77/77** (2026-07-08, `--speed-live`) |
+| `rs485_raw_check.py` | Byte-exact §9.1 vectors via second-MAX3485 raw master: split frames, garbage floods, off-baud, 1000-request latency histogram | PASS 2026-07-06, all groups (both builds) |
+| `m2k_pulse.py` | M2K W2 (AWG) → PC1 speed pulse train; holds the context open (+V+ keepalive) so another process runs the matrix concurrently | used for combined `--speed-live` |
 
 ## Bench wiring notes
 

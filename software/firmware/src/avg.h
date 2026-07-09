@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "sensors.h"
 
 // Averaging engine (integrationPlan.md stage E): boxcar over
 // N = (40003 s × 1000) / 40002 ms measurement windows (FR-S13/S31).
@@ -15,13 +16,13 @@
 void avg_config(uint16_t window_ms, uint16_t avg_s); // also clears (FR-S30)
 bool avg_filled(void); // accumulator holds a full averaging span
 
-#ifdef SENSOR_WIND_SPEED
+#ifdef HAVE_WIND_SPEED
 void avg_add_speed(uint16_t inst_0_1ms); // one closed window's 30002 value
 uint16_t avg_speed(void);                // 30004
 uint16_t avg_gust(void);                 // 30012 (FR-S37)
 #endif
 
-#ifdef SENSOR_WIND_DIRECTION
+#ifdef HAVE_WIND_DIRECTION
 // One closed window's circular result (mean sin/cos of its samples, Q15).
 void avg_add_dir(int16_t sin_q15, int16_t cos_q15);
 uint16_t avg_dir(void); // 30003: 0..3599, 65535 while empty

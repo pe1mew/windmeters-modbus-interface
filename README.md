@@ -13,6 +13,12 @@ jumper:
 |---|---|---|
 | Wind speed (`wind_speed`) | **30** | 35 |
 | Wind direction (`wind_direction`) | **31** | 36 |
+| Both, one slave (`wind_combined`) | **32** | 37 |
+
+The `wind_combined` build serves both sensors through a single Modbus
+address; its register map carries speed and direction at their own
+register addresses, with the direction raw-ADC diagnostic at 30013 (30005
+holds the speed pulse count).
 
 ## Project status (2026-07)
 
@@ -72,7 +78,7 @@ Requires [PlatformIO](https://platformio.org/) and a WCH-LinkE on SWIO.
 
 ```sh
 cd software/firmware
-pio run -e wind_speed              # or wind_direction
+pio run -e wind_speed              # or wind_direction, or wind_combined
 pio run -e wind_speed -t upload    # flash via WCH-LinkE
 ```
 

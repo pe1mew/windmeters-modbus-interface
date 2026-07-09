@@ -1,4 +1,5 @@
-#ifdef SENSOR_WIND_DIRECTION
+#include "sensors.h"
+#ifdef HAVE_WIND_DIRECTION
 
 #include "ch32fun.h"
 #include "circmean.h"
@@ -27,7 +28,7 @@ static uint32_t ms_to_ticks(uint16_t ms)
 	return (uint32_t)(FUNCONF_SYSTEM_CORE_CLOCK / 1000u) * ms;
 }
 
-void meas_init(void)
+void meas_dir_init(void)
 {
 	t_update = SysTick->CNT;
 	subsample = 0;
@@ -39,7 +40,7 @@ void meas_init(void)
 	w_n = 0;
 }
 
-void meas_service(void)
+void meas_dir_service(void)
 {
 	/* FR-S30: a 40002 write aborts the window in progress (partial
 	 * samples discarded; regs_service clears the accumulator). */
@@ -80,4 +81,4 @@ void meas_service(void)
 	}
 }
 
-#endif /* SENSOR_WIND_DIRECTION */
+#endif /* HAVE_WIND_DIRECTION */

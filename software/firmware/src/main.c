@@ -11,23 +11,17 @@
  * pulses, PC4 address jumper, PD1 SWIO.
  */
 
+#include "sensors.h" /* variant selection -> HAVE_WIND_SPEED/DIRECTION */
 #include "board.h"
 #include "ch32fun.h"
 #include "mb.h"
 #include "meas.h"
 #include "regs.h"
 
-#if !defined(SENSOR_WIND_SPEED) && !defined(SENSOR_WIND_DIRECTION)
-#error "Define SENSOR_WIND_SPEED or SENSOR_WIND_DIRECTION (select a PlatformIO env)"
-#endif
-#if defined(SENSOR_WIND_SPEED) && defined(SENSOR_WIND_DIRECTION)
-#error "SENSOR_WIND_SPEED and SENSOR_WIND_DIRECTION are mutually exclusive"
-#endif
-
-#ifdef SENSOR_WIND_SPEED
+#ifdef HAVE_WIND_SPEED
 #include "ws.h"
 #endif
-#ifdef SENSOR_WIND_DIRECTION
+#ifdef HAVE_WIND_DIRECTION
 #include "wd.h"
 #endif
 
@@ -39,14 +33,15 @@ int main(void)
 	/* FR-S18 init order:
 	 * (1) PC2/DE low first + (2) PC4 address latch + IWDG + PVD ... */
 	board_init_early();
-	/* (3) sensor front-end ready ... */
-#ifdef SENSOR_WIND_SPEED
+	/* (3) sensor front-end(s) ready — a combined build inits both ... */
+#ifdef HAVE_WIND_SPEED
 	ws_init();
+	meas_speed_init();
 #endif
-#ifdef SENSOR_WIND_DIRECTION
+#ifdef HAVE_WIND_DIRECTION
 	wd_init(); /* includes ADC self-calibration */
+	meas_dir_init();
 #endif
-	meas_init();
 	/* (4) USART receiver enabled last. */
 	regs_init(board_mb_address());
 	mb_init(regs_cfg());
@@ -58,7 +53,12 @@ int main(void)
 	{
 		mb_poll();
 		regs_service(); /* FR-S30: 40002/40003 change -> accumulator clear */
-		meas_service();
+#ifdef HAVE_WIND_SPEED
+		meas_speed_service();
+#endif
+#ifdef HAVE_WIND_DIRECTION
+		meas_dir_service();
+#endif
 
 		if ((uint32_t)(SysTick->CNT - t_second) >= second_ticks)
 		{

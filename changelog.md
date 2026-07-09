@@ -91,6 +91,21 @@ version 1 will be tagged `fw-v1` at the first release.
   zero-padding trap defeated: partial mean reads true value, not diluted).
 - FR-S32 version chain: `version.h` single source + `RELEASES.md`
   registry + on-DUT verification.
+- **`wind_combined` variant (build 0x03, address 32/37)** — one Modbus
+  slave serving both sensors (integrationPlan §10). Capability-macro
+  refactor (`sensors.h` maps the three `SENSOR_WIND_*` selectors to
+  `HAVE_WIND_SPEED`/`HAVE_WIND_DIRECTION`), per-sensor measurement services,
+  per-sensor averaging cursors (the two rings advance independently), speed
+  pulse count at 30005 and direction raw ADC at the new 30013 (map edge
+  extends 0x000C → 0x000D on this build). 6812 B flash / 1192 B RAM; the
+  single-sensor builds are unchanged. **Validated over RS-485 at address 32,
+  77/77** (`rs485_regs_check.py --build combined --speed-live`) with both
+  sensors live simultaneously — divider on PA2 + a 30 Hz M2K W2 → PC1 pulse
+  train (`m2k_pulse.py`): one FC04 image carries dir 182.8° + speed 29.4 m/s
+  (count 30, gust 29.4, dir-raw at 30013), the per-cursor averaging verified
+  live via the FR-S30 dance (both first windows + both cursors filled), full
+  protocol/atomicity/FR-S31, served delta exact. An adversarial multi-agent
+  review of the diff found no confirmed defects.
 
 ### Added — HIL harness (`software/hil/`)
 

@@ -1,13 +1,7 @@
 #include "avg.h"
 #include "regs.h"
+#include "sensors.h" /* HAVE_WIND_SPEED/DIRECTION + BUILD_TYPE */
 #include "version.h"
-
-#ifdef SENSOR_WIND_SPEED
-#define BUILD_TYPE 0x01
-#endif
-#ifdef SENSOR_WIND_DIRECTION
-#define BUILD_TYPE 0x02
-#endif
 
 /* ---- Holding registers (TDS §2.8: raw addr, min, max, default) ---- */
 
@@ -55,6 +49,11 @@ static uint16_t r_status;      /* 30006 bitfield (FR-S33)           */
 static uint16_t r_uptime_s;    /* 30008, saturating (FR-S34)        */
 static uint16_t r_pulse_age_s; /* 30011 (speed build; FR-S36)       */
 static uint16_t r_gust;        /* 30012 (stage E; speed build)      */
+#ifdef SENSOR_WIND_COMBINED
+static uint16_t r_dir_raw;     /* 30013: direction raw ADC — combined
+                                * build only; 30005 carries the speed
+                                * pulse count here (integrationPlan §10) */
+#endif
 
 #define STATUS_FIRST_WINDOW_INCOMPLETE 0x0001 /* bit 0 (FR-S23/S30) */
 #define STATUS_AVG_NOT_FILLED          0x0002 /* bit 1 (FR-S23/S30) */
@@ -75,6 +74,9 @@ static uint16_t input_read(uint16_t addr, bool *ok)
 	case 0x0009: return mb_served_count();
 	case 0x000A: return r_pulse_age_s;
 	case 0x000B: return r_gust;
+#ifdef SENSOR_WIND_COMBINED
+	case 0x000C: return r_dir_raw; /* 30013: combined-only, extends the map */
+#endif
 	default:
 		*ok = false; /* FR-MB13/14: exception 02 past the map edge */
 		return 0;
@@ -128,7 +130,7 @@ void regs_second_tick(void)
 {
 	if (r_uptime_s < 0xFFFF)
 		r_uptime_s++; /* FR-S34: saturating */
-#ifdef SENSOR_WIND_SPEED
+#ifdef HAVE_WIND_SPEED
 	if (r_pulse_age_s < 0xFFFF)
 		r_pulse_age_s++; /* FR-S36: window handler zeroes it on pulses */
 #endif
@@ -141,7 +143,7 @@ void regs_window_aborted(void)
 	r_status |= STATUS_FIRST_WINDOW_INCOMPLETE;
 }
 
-#ifdef SENSOR_WIND_SPEED
+#ifdef HAVE_WIND_SPEED
 void regs_publish_speed(uint16_t count, uint16_t inst_0_1ms)
 {
 	r_raw_diag = count;        /* 30005: raw pulse count (FR-S08)     */
@@ -159,10 +161,14 @@ void regs_publish_speed(uint16_t count, uint16_t inst_0_1ms)
 }
 #endif
 
-#ifdef SENSOR_WIND_DIRECTION
+#ifdef HAVE_WIND_DIRECTION
 void regs_dir_update(uint16_t raw16, uint16_t angle_0_1deg, bool floating)
 {
+#ifdef SENSOR_WIND_COMBINED
+	r_dir_raw = (uint16_t)(raw16 / 16);  /* 30013: speed owns 30005 here */
+#else
 	r_raw_diag = (uint16_t)(raw16 / 16); /* 30005: 10-bit view (§2.7) */
+#endif
 	if (floating) {
 		r_status |= STATUS_DIR_FAULT;    /* FR-S38 */
 		r_dir_inst = 65535;
@@ -182,7 +188,7 @@ void regs_publish_dir_window(int16_t sin_q15, int16_t cos_q15)
 	if (avg_filled())
 		r_status &= (uint16_t)~STATUS_AVG_NOT_FILLED;
 }
-#endif
+#endif /* HAVE_WIND_DIRECTION */
 
 #ifdef TEST_HOOKS
 bool regs_test_hang_requested(void)

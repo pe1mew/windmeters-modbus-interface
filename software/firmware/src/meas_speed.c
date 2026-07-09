@@ -1,4 +1,5 @@
-#ifdef SENSOR_WIND_SPEED
+#include "sensors.h"
+#ifdef HAVE_WIND_SPEED
 
 #include "ch32fun.h"
 #include "meas.h"
@@ -24,7 +25,7 @@ static uint32_t ms_to_ticks(uint16_t ms)
 	return (uint32_t)(FUNCONF_SYSTEM_CORE_CLOCK / 1000u) * ms;
 }
 
-void meas_init(void)
+void meas_speed_init(void)
 {
 	window_ms_active = regs_window_ms();
 	window_ticks = ms_to_ticks(window_ms_active);
@@ -46,7 +47,7 @@ static uint16_t scale(uint16_t count, bool saturated, uint16_t window_ms)
 	return (uint16_t)v;
 }
 
-void meas_service(void)
+void meas_speed_service(void)
 {
 	// FR-S30: a valid write to 40002 aborts the window in progress; the
 	// partial count is discarded and a new window of the new duration
@@ -71,4 +72,4 @@ void meas_service(void)
 	regs_publish_speed(count, scale(count, sat, window_ms_active));
 }
 
-#endif /* SENSOR_WIND_SPEED */
+#endif /* HAVE_WIND_SPEED */
