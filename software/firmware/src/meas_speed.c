@@ -6,15 +6,10 @@
 #include "regs.h"
 #include "ws.h"
 
-// FR-S25: calibration factor, fixed-point 0.001 m/rotation, compile-time
-// only (no register). Default = the known r = 0.07 m / η = 0.45 rotor.
-// Override per anemometer model with -D WS_C_SCALED=<n> in platformio.ini.
-#ifndef WS_C_SCALED
-#define WS_C_SCALED 980
-#endif
-_Static_assert(WS_C_SCALED >= 1 && WS_C_SCALED <= 6553,
-               "FR-S25/FR-S26: C_scaled must be 1..6553 so the FR-S06 "
-               "intermediate (count*C*10 <= 4,294,508,550) fits uint32");
+// Anemometer calibration is runtime-writable + persisted (holding 40005 C and
+// 40006 pulses/rotation; FR-S25/FR-S40) — read fresh from regs.c at each
+// window so one firmware image serves any anemometer. Defaults + range
+// static-asserts live in regs.c.
 
 static uint32_t window_ticks;   // active window length in SysTick ticks
 static uint16_t window_ms_active;
@@ -35,11 +30,16 @@ void meas_speed_init(void)
 
 // FR-S06 (ms domain) + FR-S26 (uint32-safe) + FR-S27 (saturation) +
 // FR-S07 (cut-off): returns the value for 30002.
+//   v = count * C * 10 / (window_ms * pulses_per_rotation)
+// Numerator count*C*10 <= 65535*6553*10 fits uint32 (regs.c static-assert);
+// pulses/rotation is >= 1 (holding min), so no divide-by-zero, and folding it
+// into the divisor (not count/ppr) keeps full pulse resolution.
 static uint16_t scale(uint16_t count, bool saturated, uint16_t window_ms)
 {
 	if (saturated)
 		return 65535; // FR-S27: never a wrapped value
-	uint32_t v = ((uint32_t)count * WS_C_SCALED * 10u) / window_ms;
+	uint32_t v = ((uint32_t)count * regs_ws_c() * 10u) /
+	             ((uint32_t)window_ms * regs_ws_ppr());
 	if (v > 65535u)
 		v = 65535u; // FR-S06 clamp
 	if (v < regs_cutoff_0_1ms())

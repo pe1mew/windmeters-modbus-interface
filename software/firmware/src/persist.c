@@ -7,7 +7,11 @@
 #define PAGE_A     0x08003F80u
 #define PAGE_B     0x08003FC0u
 #define PAGE_SIZE  64u
-#define STORE_MAGIC 0x5747u /* 'WG' — a written record vs blank 0xFFFF */
+#define STORE_MAGIC 0x5748u /* 'WH' — bumped from 0x5747 when the record grew
+                             * to six holdings; a pre-existing 4-holding record
+                             * fails this magic + the CRC, so it reads as
+                             * invalid and the store falls back to defaults
+                             * (clean format migration, no versioning needed) */
 
 typedef struct {
 	uint32_t seq;    /* monotonic; highest valid record is current      */
@@ -15,11 +19,13 @@ typedef struct {
 	uint16_t window; /* 40002 */
 	uint16_t avg;    /* 40003 */
 	uint16_t cutoff; /* 40004 */
+	uint16_t ws_c;   /* 40005 anemometer calibration C (0.001 m/rotation) */
+	uint16_t ws_ppr; /* 40006 anemometer pulses per rotation */
 	uint16_t magic;  /* STORE_MAGIC */
-	uint16_t crc;    /* crc16 over the preceding 14 bytes */
+	uint16_t crc;    /* crc16 over the preceding 18 bytes */
 } rec_t;
 
-_Static_assert(sizeof(rec_t) == 16, "rec_t must be 16 bytes (4 per page)");
+_Static_assert(sizeof(rec_t) == 20, "rec_t must be 20 bytes");
 
 static uint16_t crc16(const uint8_t *p, uint16_t n)
 {
@@ -35,7 +41,7 @@ static uint16_t crc16(const uint8_t *p, uint16_t n)
 static bool rec_valid(const rec_t *r)
 {
 	return r->magic == STORE_MAGIC &&
-	       crc16((const uint8_t *)r, 14) == r->crc;
+	       crc16((const uint8_t *)r, 18) == r->crc;
 }
 
 /* The page holding the newest valid record, or 0 if the store is empty. */
@@ -62,6 +68,8 @@ bool persist_load(persist_settings_t *out)
 	out->window = r->window;
 	out->avg = r->avg;
 	out->cutoff = r->cutoff;
+	out->ws_c = r->ws_c;
+	out->ws_ppr = r->ws_ppr;
 	return true;
 }
 
@@ -110,7 +118,8 @@ bool persist_save(const persist_settings_t *s)
 {
 	const rec_t *cur = newest();
 	if (cur && cur->offset == s->offset && cur->window == s->window &&
-	    cur->avg == s->avg && cur->cutoff == s->cutoff)
+	    cur->avg == s->avg && cur->cutoff == s->cutoff &&
+	    cur->ws_c == s->ws_c && cur->ws_ppr == s->ws_ppr)
 		return true; /* unchanged — flash already holds it, spare the write */
 
 	/* Ping-pong: write the page NOT holding the current record, so the
@@ -123,8 +132,10 @@ bool persist_save(const persist_settings_t *s)
 	r.window = s->window;
 	r.avg = s->avg;
 	r.cutoff = s->cutoff;
+	r.ws_c = s->ws_c;
+	r.ws_ppr = s->ws_ppr;
 	r.magic = STORE_MAGIC;
-	r.crc = crc16((const uint8_t *)&r, 14);
+	r.crc = crc16((const uint8_t *)&r, 18);
 
 	/* Write, then read back and verify; retry once on mismatch (guards a
 	 * silent flash-write failure). If still unconfirmed the store keeps its
@@ -135,7 +146,8 @@ bool persist_save(const persist_settings_t *s)
 		flash_write_record(target, &r);
 		if (rec_valid(w) && w->seq == r.seq && w->offset == s->offset &&
 		    w->window == s->window && w->avg == s->avg &&
-		    w->cutoff == s->cutoff)
+		    w->cutoff == s->cutoff && w->ws_c == s->ws_c &&
+		    w->ws_ppr == s->ws_ppr)
 			return true;
 	}
 	return false;

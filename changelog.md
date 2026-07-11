@@ -125,6 +125,19 @@ version 1 will be tagged `fw-v1` at the first release.
   defaults, and the ping-pong handles successive saves. Requirements
   updated: new FR-S39, FR-S21 carve-out, holding-map + interface-assumption
   notes.
+- **Runtime + persistent anemometer calibration (FR-S40, TDS v0.8).** The
+  anemometer calibration moved from a compile-time-only `WS_C_SCALED` to two
+  persistent holding registers — **40005** (calibration factor C, 0.001
+  m/rotation) and **40006** (pulses per rotation) — with the compile-time
+  values as factory defaults. FR-S06 speed is now
+  `count × C × 10 / (window_ms × pulses_per_rotation)`, so one firmware image
+  serves any anemometer with no rebuild: a field installer sets the two
+  registers over Modbus and they persist. A change clears the averaging
+  accumulator (like FR-S30). The persistence record grew 16 → 20 B with a
+  bumped magic, so a pre-existing store cleanly re-defaults. Verified on the
+  deployed combined unit: defaults [980, 1], writes + range-reject (exc 03),
+  the four-pulse case set live to 40006 = 4. FR-S25/FR-S06 reworked, FR-S39
+  now covers six registers, §2.8 map extended.
 
 ### Added — HIL harness (`software/hil/`)
 

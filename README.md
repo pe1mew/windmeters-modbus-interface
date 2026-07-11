@@ -24,7 +24,7 @@ holds the speed pulse count).
 
 | Area | State |
 |---|---|
-| Requirements | [`design/TDS.md`](design/TDS.md) **v0.7** — 68 active requirements (incl. FR-S39 persistence), hardened by multi-agent audits + verification passes |
+| Requirements | [`design/TDS.md`](design/TDS.md) **v0.8** — 69 active requirements (incl. FR-S39 persistence, FR-S40 runtime calibration), hardened by multi-agent audits + verification passes |
 | Drivers | Pulse counting, ADC/circular-mean, Modbus RTU — all HIL-verified on silicon ([`design/driverDevelopment.md`](design/driverDevelopment.md)) |
 | Product firmware | Integration stages A–F complete; **TDS-functionally complete** on all three variants (speed, direction, combined), acceptance suite green ([`design/integrationPlan.md`](design/integrationPlan.md)) |
 | Hardware/HIL | KiCad schematic/PCB in design; **§9.1 MAX3485-rig HIL complete on all three variants**; real-PCB rows (§9.2) pending |
@@ -46,13 +46,15 @@ holds the speed pulse count).
 
 ## Modbus register map (summary)
 
-12 input registers (FC04) and 4 holding registers (FC03/06/16); registers
+12 input registers (FC04) and 6 holding registers (FC03/06/16); registers
 of an absent sensor read 0, and the combined build adds a 13th input
 register (30013, direction raw ADC). Highlights: instantaneous and averaged
 values, status bits, identification (build + firmware version), uptime,
 CRC/served counters, gust, seconds-since-last-pulse.
-Holding: direction offset, measurement window, averaging window, low-speed
-cut-off — **persisted in flash across reset/power-loss** (FR-S39); the §2.8
+**6** holding registers: direction offset, measurement window, averaging
+window, low-speed cut-off, and the anemometer calibration (factor C +
+pulses-per-rotation, FR-S40 — so one image serves any anemometer, set over
+Modbus). All **persisted in flash across reset/power-loss** (FR-S39); the §2.8
 defaults apply only on first boot / erased store. The authoritative map with
 ranges, defaults, and requirement IDs is [`design/TDS.md`](design/TDS.md)
 §2.7/§2.8.

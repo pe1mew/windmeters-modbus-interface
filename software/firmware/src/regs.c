@@ -10,6 +10,26 @@ static uint16_t h_offset = 0;    /* 40001: 0..3599    */
 static uint16_t h_window = 1000; /* 40002: 100..60000 */
 static uint16_t h_avg = 10;      /* 40003: 1..600 + FR-S31 */
 static uint16_t h_cutoff = 4;    /* 40004: 0..50      */
+
+/* Anemometer calibration (FR-S25/FR-S40): the compile-time values below are
+ * the FACTORY DEFAULTS (overridable per firmware with -D); the running values
+ * are runtime-writable via 40005/40006 and persisted (FR-S39), so one image
+ * calibrates any anemometer in the field with no rebuild. FR-S06 speed:
+ *   speed_0.1ms = count * h_ws_c * 10 / (window_ms * h_ws_ppr)
+ * — folding pulses-per-rotation into the divisor keeps full pulse resolution. */
+#ifndef WS_C_SCALED
+#define WS_C_SCALED 980 /* C, 0.001 m/rotation (r = 0.07 m, η = 0.45) */
+#endif
+#ifndef WS_PULSES_PER_ROTATION
+#define WS_PULSES_PER_ROTATION 1
+#endif
+_Static_assert(WS_C_SCALED >= 1 && WS_C_SCALED <= 6553,
+               "default C must be 1..6553 so count*C*10 fits uint32 (FR-S26)");
+_Static_assert(WS_PULSES_PER_ROTATION >= 1 && WS_PULSES_PER_ROTATION <= 1000,
+               "default pulses/rotation must be 1..1000");
+static uint16_t h_ws_c = WS_C_SCALED;              /* 40005: 1..6553 */
+static uint16_t h_ws_ppr = WS_PULSES_PER_ROTATION; /* 40006: 1..1000 */
+
 #ifdef TEST_HOOKS
 static uint16_t test_hang;       /* 0x00FF, TEST builds only (FR-S20 hook) */
 #endif
@@ -19,6 +39,8 @@ static const mb_holding_t holdings[] = {
 	{0x0001, 100, 60000, &h_window},
 	{0x0002, 1, 600, &h_avg},
 	{0x0003, 0, 50, &h_cutoff},
+	{0x0004, 1, 6553, &h_ws_c},   /* 40005 anemometer C (0.001 m/rot) */
+	{0x0005, 1, 1000, &h_ws_ppr}, /* 40006 anemometer pulses/rotation */
 #ifdef TEST_HOOKS
 	{0x00FF, 0, 0xFFFF, &test_hang},
 #endif
@@ -88,6 +110,10 @@ static mb_config_t cfg;
 
 static uint16_t shadow_window;
 static uint16_t shadow_avg;
+#ifdef HAVE_WIND_SPEED
+static uint16_t shadow_ws_c;   /* only the speed path resets on a cal change */
+static uint16_t shadow_ws_ppr;
+#endif
 
 /* FR-S39: last-persisted snapshot. Gates flash access — regs_persist_service
  * only touches flash when a holding register differs from this. */
@@ -109,15 +135,23 @@ void regs_init(uint8_t mb_address)
 		h_window = ps.window;
 		h_avg = ps.avg;
 		h_cutoff = ps.cutoff;
+		h_ws_c = ps.ws_c;
+		h_ws_ppr = ps.ws_ppr;
 	}
 	persisted.offset = h_offset;
 	persisted.window = h_window;
 	persisted.avg = h_avg;
 	persisted.cutoff = h_cutoff;
+	persisted.ws_c = h_ws_c;
+	persisted.ws_ppr = h_ws_ppr;
 
 	r_status = STATUS_FIRST_WINDOW_INCOMPLETE | STATUS_AVG_NOT_FILLED;
 	shadow_window = h_window;
 	shadow_avg = h_avg;
+#ifdef HAVE_WIND_SPEED
+	shadow_ws_c = h_ws_c;
+	shadow_ws_ppr = h_ws_ppr;
+#endif
 	avg_config(h_window, h_avg);
 }
 
@@ -129,24 +163,39 @@ void regs_persist_service(void)
 	 * Called from the main loop AFTER the Modbus response, so the ~6 ms
 	 * flash op never lands in the response path (FR-MB20/21). */
 	if (h_offset == persisted.offset && h_window == persisted.window &&
-	    h_avg == persisted.avg && h_cutoff == persisted.cutoff)
+	    h_avg == persisted.avg && h_cutoff == persisted.cutoff &&
+	    h_ws_c == persisted.ws_c && h_ws_ppr == persisted.ws_ppr)
 		return;
 	persisted.offset = h_offset;
 	persisted.window = h_window;
 	persisted.avg = h_avg;
 	persisted.cutoff = h_cutoff;
+	persisted.ws_c = h_ws_c;
+	persisted.ws_ppr = h_ws_ppr;
 	persist_save(&persisted);
 }
 
 void regs_service(void)
 {
-	/* FR-S30: a valid write to 40002 or 40003 clears the averaging
-	 * accumulator; 30003/30004/30012 RETAIN their last published values
-	 * until the first new window completes (the publishers overwrite
-	 * them); status bits 0/1 re-assert. */
-	if (h_window != shadow_window || h_avg != shadow_avg) {
+	/* FR-S30: a valid write to 40002/40003 clears the averaging accumulator;
+	 * 30003/30004/30012 RETAIN their last published values until the first
+	 * new window completes (the publishers overwrite them); status bits 0/1
+	 * re-assert. */
+	bool changed = h_window != shadow_window || h_avg != shadow_avg;
+#ifdef HAVE_WIND_SPEED
+	/* FR-S40: a calibration change (40005/40006) rescales the speed, so the
+	 * boxcar must not mix old- and new-scale entries — clear it too. Speed
+	 * path only: on a direction-only build 40005/40006 are inert (FR-MB27),
+	 * so a write there must NOT touch the direction average. */
+	changed = changed || h_ws_c != shadow_ws_c || h_ws_ppr != shadow_ws_ppr;
+#endif
+	if (changed) {
 		shadow_window = h_window;
 		shadow_avg = h_avg;
+#ifdef HAVE_WIND_SPEED
+		shadow_ws_c = h_ws_c;
+		shadow_ws_ppr = h_ws_ppr;
+#endif
 		avg_config(h_window, h_avg);
 		r_status |= STATUS_FIRST_WINDOW_INCOMPLETE | STATUS_AVG_NOT_FILLED;
 	}
@@ -161,6 +210,8 @@ uint16_t regs_offset_0_1deg(void) { return h_offset; }
 uint16_t regs_window_ms(void)     { return h_window; }
 uint16_t regs_avg_s(void)         { return h_avg; }
 uint16_t regs_cutoff_0_1ms(void)  { return h_cutoff; }
+uint16_t regs_ws_c(void)          { return h_ws_c; }   /* 40005, 0.001 m/rot */
+uint16_t regs_ws_ppr(void)        { return h_ws_ppr; } /* 40006, pulses/rot  */
 
 void regs_second_tick(void)
 {

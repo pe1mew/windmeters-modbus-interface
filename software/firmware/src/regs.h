@@ -52,6 +52,8 @@ uint16_t regs_offset_0_1deg(void); /**< 40001 north offset, 0.1° units. */
 uint16_t regs_window_ms(void);     /**< 40002 measurement window, ms. */
 uint16_t regs_avg_s(void);         /**< 40003 averaging window, s. */
 uint16_t regs_cutoff_0_1ms(void);  /**< 40004 low-speed cut-off, 0.1 m/s. */
+uint16_t regs_ws_c(void);          /**< 40005 anemometer C, 0.001 m/rotation (FR-S40). */
+uint16_t regs_ws_ppr(void);        /**< 40006 anemometer pulses per rotation (FR-S40). */
 /** @} */
 
 /**

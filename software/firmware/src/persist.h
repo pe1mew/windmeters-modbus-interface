@@ -1,12 +1,13 @@
 /**
  * @file persist.h
- * @brief Non-volatile storage for the four persisted holding registers (FR-S39).
+ * @brief Non-volatile storage for the six persisted holding registers (FR-S39).
  *
- * The four master-writable holding registers (40001 north offset, 40002
- * measurement window, 40003 averaging window, 40004 low-speed cut-off) survive
- * reset and power-loss, so an installation constant such as the north offset,
- * or any set-once knob, need not be re-applied by the Modbus master after every
- * reset. Flash-emulated because the CH32V003 has no EEPROM.
+ * The six master-writable holding registers (40001 north offset, 40002
+ * measurement window, 40003 averaging window, 40004 low-speed cut-off, 40005
+ * anemometer calibration factor, 40006 anemometer pulses per rotation) survive
+ * reset and power-loss, so installation/sensor constants such as the north
+ * offset or the anemometer calibration need not be re-applied by the Modbus
+ * master after every reset. Flash-emulated because the CH32V003 has no EEPROM.
  *
  * @par Storage layout
  * Two 64-byte flash pages in the top 128 B of flash (inside the NFR-RES01
@@ -30,7 +31,7 @@
 #include <stdint.h>
 
 /**
- * @brief The four persisted holding registers (TDS §2.8), one flash record.
+ * @brief The six persisted holding registers (TDS §2.8), one flash record.
  *
  * Mirrors the master-writable holding set that must survive reset/power-loss
  * (FR-S39). Field order and 16-bit width match the on-flash record; each field
@@ -41,6 +42,8 @@ typedef struct {
 	uint16_t window; /**< 40002 — measurement window, ms (@ref regs_window_ms). */
 	uint16_t avg;    /**< 40003 — averaging window, s (@ref regs_avg_s). */
 	uint16_t cutoff; /**< 40004 — low-speed cut-off, 0.1 m/s (@ref regs_cutoff_0_1ms). */
+	uint16_t ws_c;   /**< 40005 — anemometer calibration factor C, 0.001 m/rotation (@ref regs_ws_c). */
+	uint16_t ws_ppr; /**< 40006 — anemometer pulses per rotation (@ref regs_ws_ppr). */
 } persist_settings_t;
 
 /**
