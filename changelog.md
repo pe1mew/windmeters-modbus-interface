@@ -198,6 +198,15 @@ version 1 will be tagged `fw-v1` at the first release.
 - **`design/README.md`** indexes the design-document chain and variants;
   root docs (README, contributing) updated for the three variants,
   persistence, and the documentation site.
+- **`softwareArchitecture.md` updated for the combined variant
+  (2026-07-12)** — three-build scope with the `sensors.h` capability-macro
+  gating, a "combined build: both sensors, one loop, zero new mechanism"
+  design decision (per-sensor `avg.c` cursors, 30005/30013 split, unchanged
+  latency), the stale HDSEL/RX-ISR §3 wording reconciled with the shipped
+  remap-switching discipline, the module split extended (`sensors.h`,
+  `avg.c`, `persist.c`, `mb.c` referenced in place), and as-built sizes for
+  all three variants (speed 4408 B / 908 B, direction 6824 B / 916 B,
+  combined 7604 B / 1216 B against the NFR-RES01 ceilings).
 
 ---
 

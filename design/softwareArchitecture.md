@@ -4,14 +4,19 @@
 |---|---|
 | Document | Software architecture (design rationale) |
 | Project | `windmeters-modbus-interface` firmware |
-| Date | 2026-07-03 |
-| Status | Agreed baseline for driver development and integration |
-| Related docs | `design/TDS.md` v0.6 (requirements this design satisfies), `design/driverDevelopment.md` (drivers are written against this architecture), `design/scratchBook.md` |
+| Date | 2026-07-03 (combined-variant update 2026-07-12) |
+| Status | Agreed baseline for driver development and integration; updated for the shipped three-variant firmware |
+| Related docs | `design/TDS.md` v0.9 (requirements this design satisfies), `design/driverDevelopment.md` (drivers are written against this architecture), `design/integrationPlan.md` §10 (combined variant), `design/scratchBook.md` |
 
 ## 1. Scope and constraints
 
 Target: CH32V003J4M6 — RV32EC, one core, 48 MHz HSI, 16 KB flash, 2 KB SRAM.
-One firmware source tree, two builds (wind speed / wind direction, FR-S01).
+One firmware source tree, three builds (wind speed / wind direction /
+combined, FR-S01). `sensors.h` maps the single `SENSOR_WIND_*` build
+selector onto **capability macros** — `HAVE_WIND_SPEED` /
+`HAVE_WIND_DIRECTION` — and the combined build simply defines both, so
+every per-sensor block compiles in unchanged; nothing below is
+combined-specific except where marked.
 
 Given these constraints and the TDS requirements, the architecture is
 **zero-interrupt: a cooperative super-loop polls everything.** No RTOS —
@@ -35,12 +40,14 @@ it would cost more RAM than the application uses and buys nothing here.
 │ for(;;) {                                                   │
 │   modbus_service();      // poll RXNE/errors, stamp ticks,  │
 │                          // gap detect, parse, respond      │
-│   measurement_service(); // window expiry, sample, publish  │
+│   measurement_service(); // per capability macro: speed     │
+│                          // and/or direction — a combined   │
+│                          // build runs BOTH in this pass    │
 │   diagnostics_service(); // uptime, counters                │
 │   IWDG_refresh();        // only here (FR-S20)              │
 │ }                                                           │
 └─────────────────────────────────────────────────────────────┘
-   TIM2 (speed build): pure hardware counter — counts with zero code
+   TIM2 (speed/combined): pure hardware counter — counts with zero code
    Timing: raw SysTick->CNT arithmetic (HCLK; FUNCONF_SYSTICK_USE_HCLK 1)
 ```
 
@@ -64,25 +71,45 @@ the earlier scratchBook sketch that put it there).
 **Frame boundary by polling, not a timer.** The main loop checks
 `ms_tick - last_rx_tick ≥ 5` to detect the 3.5-character gap (FR-MB03). A
 dedicated t3.5 timer interrupt is the textbook approach, but timers are
-scarce (TIM2 is the pulse counter on the speed build), the loop iterates
-thousands of times per millisecond, and the detection jitter this adds is
-microseconds against a 100 ms budget (FR-MB20). One mechanism, both builds.
+scarce (TIM2 is the pulse counter on the speed and combined builds), the
+loop iterates thousands of times per millisecond, and the detection jitter
+this adds is microseconds against a 100 ms budget (FR-MB20). One mechanism,
+all three builds.
 
 **Blocking TX from the main loop.** The longest response (~29 bytes) takes
 ~33 ms of wire time at 9600 baud. Sending it byte-by-byte with a poll on
 TXE, then polling TC to drop DE within one character time (FR-MB04), is
 simple and deterministic. It briefly stalls the loop, but well inside the
 IWDG window, and Modbus is strictly request/response so nothing else can
-arrive meanwhile — except the device's own looped-back bytes (HDSEL ties TX
-to RX), which the RX ISR drops while the `transmitting` flag is set
-(FR-MB23).
+arrive meanwhile. Self-echo cannot occur at all in the shipped design: the
+remap-switching line discipline (RX native on PD6; TX remapped onto PD6
+only for the response, RO tri-stated while DE is high — the HDSEL sketch
+was abandoned per the §1 amendment) leaves nothing looped back, and the
+receiver re-arms only after DE drops plus a t3.5 idle (FR-MB23).
 
-**No ADC interrupt, no TIM2 interrupt.** Direction build: every 100 ms the
-main loop takes 16 blocking conversions (< 1 ms total at the ≥71-cycle
-sample time) and folds them per FR-S28. Speed build: TIM2 counts in
-hardware; at window expiry the main loop reads CNT, checks the overflow
-flag UIF for FR-S27 saturation (no ISR needed — poll the flag at read
-time), resets, computes, publishes.
+**No ADC interrupt, no TIM2 interrupt.** Direction path
+(direction/combined): every 100 ms the main loop takes 16 blocking
+conversions (< 1 ms total at the ≥71-cycle sample time) and folds them per
+FR-S28. Speed path (speed/combined): TIM2 counts in hardware; at window
+expiry the main loop reads CNT, checks the overflow flag UIF for FR-S27
+saturation (no ISR needed — poll the flag at read time), resets, computes,
+publishes.
+
+**Combined build: both sensors, one slave, zero new mechanism.** The
+capability macros compile *both* measurement services into the same
+super-loop pass — they run sequentially, so FR-S24's structural coherence
+holds unchanged and there is still no concurrency surface. Each sensor gets
+its own averaging cursor in `avg.c` (the two boxcar rings advance
+independently, since the speed ring fills per measurement window and the
+direction ring per 100 ms update). The extra work per pass is the ADC burst
+(< 1 ms) plus the window computation — microseconds-scale against FR-MB20's
+100 ms budget; measured response latency through the transceiver is
+unchanged (~4.1 ms median). The register image carries both sensors at
+their §2.7 addresses; the only map difference is the shared raw-diagnostic
+slot: 30005 reports the speed pulse count on a combined build, and the
+direction raw ADC moves to the combined-only 30013 (`regs.c`, the one
+`SENSOR_WIND_COMBINED`-specific piece of code). Address pair 32/37
+(`board.h`, FR-S03).
 
 ## 4. Shared state — the complete list
 
@@ -108,30 +135,42 @@ routines are pulled in by the FR-S06 math).
 — meets FR-MB21's 95%-within-15 ms with margin, and FR-MB20's 100 ms hard
 limit trivially.
 
+**As-built (2026-07-12, fw v1 with FR-S39 persistence + FR-S40
+calibration):** speed 4 408 B flash / 908 B RAM; direction 6 824 B / 916 B;
+combined 7 604 B / 1 216 B — the largest build sits at 53 % of the flash
+ceiling and 68 % of the RAM ceiling (NFR-RES01), so the estimates above
+held and the combined variant fits with headroom. Measured latency through
+the MAX3485: median 4.12 ms over 1 000 requests (`testReport.md`
+R485-LAT-10D).
+
 ## 6. Module split
 
 | Module | Contents | Driver-plan origin |
 |---|---|---|
 | `main.c` | The super-loop and window pacing | integration phase |
-| `board.c` | Clocks, GPIO, FR-S18 init order | integration phase |
-| `modbus.c` | Framing, CRC, FC dispatch, exceptions, DE control | `modbus_rtu` driver (`mb_*`) |
-| `regs.c` | Register image + table-driven `{addr, min, max}` validator — FR-MB19/22/28 become one code path | integration phase |
-| `meas_speed.c` | TIM2 ETR counting, FR-S06 scaling | `wind_speed` driver (`ws_*`) |
+| `board.c` | Clocks, GPIO, FR-S18 init order, PC4 address latch, IWDG + PVD | integration phase |
+| `sensors.h` | Build selector → capability macros (`HAVE_WIND_SPEED` / `HAVE_WIND_DIRECTION`) + `BUILD_TYPE`; a combined build defines both | integration phase (combined variant) |
+| `mb.c` | Framing, CRC, FC dispatch, exceptions, DE control + remap-switching line discipline — referenced in place from `software/drivers/modbus_rtu` | `modbus_rtu` driver (`mb_*`) |
+| `regs.c` | Register image + table-driven `{addr, min, max}` validator — FR-MB19/22/28 become one code path; persist load/save wiring; the 30005/30013 combined split | integration phase |
+| `meas_speed.c` | TIM2 ETR counting, FR-S06/S40 scaling | `wind_speed` driver (`ws_*`) |
 | `meas_dir.c` | ADC oversampling, offset/wrap, fault detect | `wind_direction` driver (`wd_*`) |
-| `circmean.c` | Fixed-point sin/cos + atan2 (host-unit-tested) | `common/circmean` |
+| `avg.c` | Boxcar/two-stage averaging + gust (FR-S31/S37), one cursor per sensor | integration phase (stage E) |
+| `persist.c` | FR-S39 holding-register persistence — two-page flash ping-pong, power-loss atomic | integration phase |
+| `circmean.c` | Fixed-point sin/cos + atan2 (host-unit-tested) — referenced in place from `software/drivers/common` | `common/circmean` |
 | `debug_uart.c` | PD6 TX-only tracing (driver phases only; absent from release builds) | `common/debug_uart` |
 
-`meas_speed.c` / `meas_dir.c` are selected by the FR-S01 compile-time
-define. Driver development happens standalone per
-`design/driverDevelopment.md`; this document is the contract the drivers
-integrate back into.
+`meas_speed.c` / `meas_dir.c` compile in per capability macro: the
+single-sensor builds get one of them, the combined build gets both — each
+publishing through its own `avg.c` cursor into the shared `regs.c` image.
+Driver development happens standalone per `design/driverDevelopment.md`;
+this document is the contract the drivers integrate back into.
 
 ## 7. Diagrams (UML)
 
 These reflect the **shipped** implementation — zero-ISR, remap-switching
 line discipline, three build variants (speed / direction / combined), and
-FR-S39 holding-register persistence — which supersedes some earlier phrasing
-above (e.g. the pre-amendment HDSEL/ISR wording in §3). Sources live in
+FR-S39 holding-register persistence — matching the text above (updated
+2026-07-12 for the combined variant). Sources live in
 [`design/diagrams/`](diagrams/) as PlantUML; regenerate the PNGs with:
 
 ```sh
