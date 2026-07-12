@@ -11,7 +11,8 @@ Hardware-in-the-loop (HIL) testing on this project means the CH32V003 device-und
 | MAX3485-rig HIL (§9.1) | 20 | 20 | — (FR-S38 float-fault + recovery now validated) |
 | Combined variant (`wind_combined`) | 4 | 4 | — |
 | Persistence (FR-S39) | 3 | 3 | — |
-| **Totals** | **74** | **72** | **2 deferred / opt-in (see Pending section)** |
+| Live-sensor rig (2026-07-12) | 4 | 4 | FR-S11/S14 accuracy, VDD sweep, latency remain M2K-gated |
+| **Totals** | **78** | **76** | **M2K-precision rows + opt-in (see Pending)** |
 
 > Test counts include NOT-RUN/DEFERRED/PENDING rows so the matrix is honest; those rows are excluded from the "Passing" column. INT-F-BUILD-02 is present and available but is opt-in and was not part of the core stage-F green run, so it is counted as not-yet-passing here.
 
@@ -193,11 +194,29 @@ read-back-verified). Validated on the `wind_combined_test` build at address
 | CAL-01 | Anemometer calibration registers (FR-S40) | Deployed combined unit @ 32 (via tester API), reflashed with the 40005/40006 firmware; read defaults, write, range-reject, set live | 40005/40006 default to [980, 1]; writable; out-of-range → exc 03; map edge at 0x0006; the values persist | registers present + default + writable + rejected + persisted | **PASS 2026-07-09** (on silicon). Defaults [980, 1]; old 16 B store cleanly re-defaulted; 40006 := 4 set live (your 4-pulse anemometer); 40006:=1001 / 40005:=6554 / 40006:=0 all exc 03, values unchanged; 0x0006 excepts | FR-S40, FR-MB19, FR-MB27 |
 | CAL-REV | Adversarial review of the FR-S40 diff | 3-lens review (flash format, speed formula, regs integration) + verify | No confirmed defects | 1 confirmed of 1 candidate → fixed | **PASS 2026-07-09.** Flash-format + speed-formula clean; caught 1 real minor bug — 40005/40006 writes reset the *direction* average on a direction-only build (should be inert, FR-MB27). Fixed (gated the cal-reset behind HAVE_WIND_SPEED; direction build shrank 44 B confirming it), combined unchanged | — |
 
+### Live-sensor rig (real anemometer + vane over RS-485, 2026-07-12)
+
+The deployed combined unit @ 32 (release build) on the RS-485 bus with its
+**real cup anemometer (J4 → PC1) and wind vane (J5 → PA2)** connected, read
+through the tester machine API — no M2K, the live sensors are the stimulus.
+This session ran the 6-register register matrix and the sensor-path rows a
+real anemometer/vane can drive; the M2K-precision rows (FR-S11 5-ratio
+accuracy, FR-S14 automated alternation, VDD sweep, latency histogram) remain
+open (see Pending).
+
+| ID | Test | Setup / stimulus | Expected | Pass criteria | Result | Req refs |
+|---|---|---|---|---|---|---|
+| LIVE-REGS | Full register matrix, 6-holding map | `rs485_regs_check.py --build combined` — 13-input image, all 6 holdings incl. 40005/40006, ranges/rejects/atomicity, FR-MB05 filter, served-counter | Every mapped register + protocol vector passes; DUT stays served | no firmware defect | **PASS (no defect) 2026-07-12, 92/97.** The 5 non-passes are all test-assumption/bench-state: 3× the DUT held **persisted field config** (40004=6, 40006=4) vs the script's hardcoded factory defaults (FR-S39 working); 1× the pulse-age-vs-uptime check assumes zero pulses (PC1 had recent activity); 1× the FR-S30 immediate bit0 re-assert (see Pending). Every new 6-register check passed: 40005 [1..6553] / 40006 [1..1000] edges + exc-03 rejects, FC16 6-reg block + bad-C atomic reject, 0x0006 edge, FR-S40 `0→3` re-assert. (The script's end-of-run default-restore overwrote the field config; 40004=6/40006=4 re-written after.) | FR-S40, FR-MB27, FR-MB19/22, FR-S30 |
+| LIVE-SPEED | Speed formula on live pulses (closes the FR-S40 deferral) | Real anemometer spun by hand; sample coherent 30002+30005 snapshots; verify `30002 == min(65535, count×C×10/(window×ppr))` + cutoff; then set 40006 4→8 and re-verify | 30002 matches the formula every window regardless of rate; the 40006 divisor halves the reading | all windows match; divisor takes effect | **PASS 2026-07-12, 29/29.** 18 windows at ppr=4 + 11 at ppr=8 all match exactly (count 6 → 1.4 m/s at ppr=4, 0.7 m/s at ppr=8). 40006 restored to 4 | FR-S06, FR-S40, FR-S07, FR-S24 |
+| LIVE-DIR-STAB | Direction stability | Vane held fixed; 32 coherent reads of 30001 + raw ADC 30013 | Raw-ADC span ≤ 3 counts (FR-S10/S28) | span ≤ 3 | **PASS 2026-07-12.** Raw ADC (30013) span **0** over 32 reads; 30001 steady 64.4–64.6° | FR-S10, FR-S28 |
+| LIVE-DIR-FLOAT | Float-fault + recovery, real vane | Unplug the vane wiper (RJ14 J5), then replug, recording 30001/30003/status | 30001 & 30003 → 65535 + status bit 2 while floating; recovery (valid angle, bit 2 clear) after replug | fault + recovery both observed | **PASS 2026-07-12.** Floating: 30001 & 30003 = 65535, status 0x0004 (bit 2); replug → 30001 = 66.8°, bit 2 clear (30003 boxcar refills a beat later, excluding fault samples). Real-vane confirmation of the M2K-driven float rows | FR-S38, FR-S33 |
+
 ## Pending / not yet run
 
 The following HIL rows are not yet executed and why:
 
-- **FR-S40 speed scaling with live pulses (DEFERRED to bench rebuild).** The calibration registers are verified on silicon (CAL-01), but confirming 30002 actually rescales by `C / (window_ms · pulses_per_rotation)` needs a PC1 pulse source — the M2K rig was torn down. Low risk (simple arithmetic, reviewed). `rs485_regs_check.py` now covers the 6-register holding map (defaults [0,1000,10,4,980,1], edge 0x0006, 40005/40006 range edges + FC16 atomicity, and the calibration-reset status behaviour — inert on a direction build per FR-MB27); the live-pulse proportional check (40006=4 quarters 30002; C doubles it) is wired behind `--speed-live` and awaits a PC1 pulse source.
+- **FR-S40 speed scaling with live pulses — DONE 2026-07-12 (LIVE-SPEED).** Confirmed on the real anemometer over RS-485: 29/29 sampled windows match `min(65535, count×C×10/(window×ppr))` and the 40006 divisor takes effect live (count 6 → 1.4 m/s at ppr=4, 0.7 m/s at ppr=8). `rs485_regs_check.py` also covers the full 6-register holding map, validated live in LIVE-REGS (defaults [0,1000,10,4,980,1], edge 0x0006, 40005/40006 range edges + FC16 atomicity, calibration-reset status behaviour inert on a direction build per FR-MB27); its `--speed-live` M2K path stays as an alternative stimulus.
+- **FR-S30 immediate bit0 re-assert — needs a look (non-blocking).** In LIVE-REGS the *immediate* status read after a 40002/40003 change returned 2 (bit 1 only) not 3 — bit 0 cleared within ~0.4 s, faster than the 1000 ms window implies. The mechanism otherwise works (the delayed bit0/bit1 clears and the FR-S40 `0→3` re-assert all passed), so most likely a fragile immediate-read assertion in the script rather than a firmware defect; re-run a few times / inspect the FC16-write window-restart path to confirm.
 - **P1-WS-BOUNCE — reed-relay bounce realism (DEFERRED).** Hardware-only; deferred until a physical reed relay / anemometer through the scratchBook RC debounce filter is on the rig. The one row of the wind-speed 5-row matrix not in the automated 9/9 pass.
 - **5-ratio divider accuracy sweep (DEFERRED to real-PCB acceptance).** The
   M2K-powered VDD sweep is now done (P2-WD-RATIO); the remaining end-to-end
@@ -207,7 +226,7 @@ The following HIL rows are not yet executed and why:
   validated on-wire (INT-D-DIR-01 / R485-DIR-14).
 - **P3-MB-DEFERRED — FR-MB04/24/03 asserts at driver phase (DEFERRED, now largely satisfied).** These were deferred from the TTL driver phase to the MAX3485 rig / acceptance; the RS-485 rows above (R485-DE-01, R485-FLOOD-08/08D, R485-SPLIT-07/07D) now assert them on real transceivers.
 - **INT-F-BUILD-02 — NFR-BLD01 reproducible build (OPT-IN, not run in the core suite).** Available as `pytest -m reproducible`; it was not part of the core stage-F green run and has no recorded hash numbers.
-- **NFR-TST01 backlog — pytest stubs landed (tracked, non-blocking).** `acceptance/test_nfr_tst01.py` collects the backlog as rig-gated rows, skipped in the default green run: FR-S21 reset matrix (`--run-reset-matrix`), the FR-MB20/21 latency histogram (`--run-raw-master`, wraps `rs485_raw_check.py --group latency`), and the M2K rows (`--run-m2k`) — on-target FR-S14 alternating-stimulus, the 5-ratio divider sweep, and the VDD ratiometric sweep (wraps `m2k_vplus_check.py`). Latency + VDD are wired to existing scripts; the reset-matrix, FR-S14, and divider-sweep scripts XFAIL until written.
+- **NFR-TST01 backlog — pytest stubs landed (tracked, non-blocking).** `acceptance/test_nfr_tst01.py` collects the backlog as rig-gated rows, skipped in the default green run: FR-S21 reset matrix (`--run-reset-matrix`), the FR-MB20/21 latency histogram (`--run-raw-master`, wraps `rs485_raw_check.py --group latency`), and the M2K rows (`--run-m2k`) — on-target FR-S14 alternating-stimulus, the 5-ratio divider sweep, and the VDD ratiometric sweep (wraps `m2k_vplus_check.py`). All five backing scripts now exist (`reset_matrix_check.py`, `rs485_raw_check.py`, `wd_altstim_check.py`, `wd_divider_sweep.py`, `m2k_vplus_check.py`); each row runs the moment its rig is wired — the reset matrix needs a `*_test` build (watchdog source over the wire; power-on/brown-out stay §9.2), the M2K rows need the W1/scope wiring. `reset_matrix_check.py` also asserts the FR-S21 defined state beyond FR-S39 persistence: uptime reset + averaging accumulator cleared (status bit 1).
 
 **Real-PCB rows remain hardware-gated.** The `integrationPlan.md` **§9.2** real-PCB acceptance rows (including the literal third-party-pair FR-S19 variant that needs a second physical unit exchanging frames while the DUT is flashed) are still hardware-gated and out of scope for this bench session; they are pointed to here so the report reader knows the §9.1 MAX3485-breadboard work substantially pre-runs, but does not replace, the §9.2 acceptance on the finished board.
 

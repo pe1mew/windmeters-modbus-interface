@@ -34,23 +34,22 @@ def _require_script(name):
         pytest.xfail(f"{name} not yet written (NFR-TST01 stub)")
 
 
-def test_reset_matrix(build, mcp_port, run_reset_matrix):
-    """FR-S21/FR-S39: after each reset source (power-on, watchdog, software)
-    the DUT re-enters its defined state within 1 s — holding registers
-    restored from flash (the last committed set, not the §2.8 defaults) and
-    all measurement accumulators cleared (status bits 0|1 set, 30008 uptime
-    back near 0).
+def test_reset_matrix(build, dut_addr, base, run_reset_matrix):
+    """FR-S21/FR-S39: after a reset the DUT re-enters its defined state within
+    1 s — holding registers restored from flash (the last committed set, not
+    the §2.8 defaults) and the averaging accumulator cleared (status bit 1
+    set, 30008 uptime back near 0).
 
     The watchdog source is reachable over the wire on a ``*_test`` hang-hook
-    build (write TEST_HOOKS 0x00FF, wait for recovery); the power and
+    build (write TEST_HOOKS 0x00FF, wait for recovery); the power-on and
     brown-out sources need a programmable supply (integrationPlan.md §9.2).
     """
     if not run_reset_matrix:
-        pytest.skip("needs --run-reset-matrix (a *_test hang-hook build or "
-                    "programmable-supply power control)")
+        pytest.skip("needs --run-reset-matrix (a *_test hang-hook build; the "
+                    "power-on/brown-out sources need a programmable supply)")
     _require_script("reset_matrix_check.py")
     rc, out = run_check("reset_matrix_check.py", "--build", build,
-                        "--port", str(mcp_port))
+                        "--base", base, "--slave", str(dut_addr))
     assert rc == 0 and "RESET MATRIX PASS" in out
 
 
