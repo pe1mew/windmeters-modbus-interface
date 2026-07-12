@@ -197,17 +197,17 @@ read-back-verified). Validated on the `wind_combined_test` build at address
 
 The following HIL rows are not yet executed and why:
 
-- **FR-S40 speed scaling with live pulses (DEFERRED to bench rebuild).** The calibration registers are verified on silicon (CAL-01), but confirming 30002 actually rescales by `C / (window_ms · pulses_per_rotation)` needs a PC1 pulse source — the M2K rig was torn down. Low risk (simple arithmetic, reviewed). Also: `rs485_regs_check.py` still assumes the 4-register holding map (block read count 4, edge 0x0004, defaults [0,1000,10,4]) — extend it to 40005/40006 when the bench returns.
+- **FR-S40 speed scaling with live pulses (DEFERRED to bench rebuild).** The calibration registers are verified on silicon (CAL-01), but confirming 30002 actually rescales by `C / (window_ms · pulses_per_rotation)` needs a PC1 pulse source — the M2K rig was torn down. Low risk (simple arithmetic, reviewed). `rs485_regs_check.py` now covers the 6-register holding map (defaults [0,1000,10,4,980,1], edge 0x0006, 40005/40006 range edges + FC16 atomicity, and the calibration-reset status behaviour — inert on a direction build per FR-MB27); the live-pulse proportional check (40006=4 quarters 30002; C doubles it) is wired behind `--speed-live` and awaits a PC1 pulse source.
 - **P1-WS-BOUNCE — reed-relay bounce realism (DEFERRED).** Hardware-only; deferred until a physical reed relay / anemometer through the scratchBook RC debounce filter is on the rig. The one row of the wind-speed 5-row matrix not in the automated 9/9 pass.
 - **5-ratio divider accuracy sweep (DEFERRED to real-PCB acceptance).** The
   M2K-powered VDD sweep is now done (P2-WD-RATIO); the remaining end-to-end
   accuracy across multiple divider ratios is deferred to the finished board
-  + calibration (TDS §5), where the M2K's absolute-voltage inaccuracy no
+  + calibration (TDS §6), where the M2K's absolute-voltage inaccuracy no
   longer applies. FR-S12 offset-register wrap is host-proven and also
   validated on-wire (INT-D-DIR-01 / R485-DIR-14).
 - **P3-MB-DEFERRED — FR-MB04/24/03 asserts at driver phase (DEFERRED, now largely satisfied).** These were deferred from the TTL driver phase to the MAX3485 rig / acceptance; the RS-485 rows above (R485-DE-01, R485-FLOOD-08/08D, R485-SPLIT-07/07D) now assert them on real transceivers.
 - **INT-F-BUILD-02 — NFR-BLD01 reproducible build (OPT-IN, not run in the core suite).** Available as `pytest -m reproducible`; it was not part of the core stage-F green run and has no recorded hash numbers.
-- **NFR-TST01 backlog (tracked, non-blocking).** From INT-F-SUITE-DIR: FR-S21 reset-matrix pytest, an FR-MB20/21 latency histogram in-suite, the 5-ratio divider sweep, the M2K-V+ VDD sweep, and an on-target FR-S14 alternating-stimulus row via W1.
+- **NFR-TST01 backlog — pytest stubs landed (tracked, non-blocking).** `acceptance/test_nfr_tst01.py` collects the backlog as rig-gated rows, skipped in the default green run: FR-S21 reset matrix (`--run-reset-matrix`), the FR-MB20/21 latency histogram (`--run-raw-master`, wraps `rs485_raw_check.py --group latency`), and the M2K rows (`--run-m2k`) — on-target FR-S14 alternating-stimulus, the 5-ratio divider sweep, and the VDD ratiometric sweep (wraps `m2k_vplus_check.py`). Latency + VDD are wired to existing scripts; the reset-matrix, FR-S14, and divider-sweep scripts XFAIL until written.
 
 **Real-PCB rows remain hardware-gated.** The `integrationPlan.md` **§9.2** real-PCB acceptance rows (including the literal third-party-pair FR-S19 variant that needs a second physical unit exchanging frames while the DUT is flashed) are still hardware-gated and out of scope for this bench session; they are pointed to here so the report reader knows the §9.1 MAX3485-breadboard work substantially pre-runs, but does not replace, the §9.2 acceptance on the finished board.
 

@@ -8,10 +8,9 @@ defaults; the measurement and averaging groups restore what they change.
 from conftest import run_check
 
 
-def test_version_chain(build, mcp_port):
+def test_version_chain(build, mcp_port, dut_addr):
     """FR-S32: version.h <-> RELEASES.md <-> flashed DUT."""
-    addr = "30" if build == "speed" else "31"
-    rc, out = run_check("version_check.py", "--address", addr,
+    rc, out = run_check("version_check.py", "--address", str(dut_addr),
                         "--port", str(mcp_port))
     assert rc == 0, "version chain mismatch — see log"
 

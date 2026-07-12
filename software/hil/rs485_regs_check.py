@@ -12,14 +12,19 @@ identical on both per FR-MB27, the input-register active/zero map differs):
     age tracks uptime; direction: raw ADC in range, no DIR_FAULT)
   - direction only: 40001 offset applied to the reported angle with 3600
     wraparound (FR-S25/S26)
-  - FC03: defaults, singles, map edge (FR-MB27, TDS §2.8 defaults)
+  - FC03: 6-register defaults [0,1000,10,4,980,1], singles, map edge
+    0x0006 (FR-MB27, TDS §2.8)
   - FC06: min/max/mid accepted + byte-exact echo (FR-MB30), out-of-range
     rejected with exception 03 and NO state change (FR-MB19), unmapped ->
     exception 02 (FR-MB15), TEST_HOOKS register absent on release build
-  - FC16: block write + read-back, atomic reject on one bad value
-    (FR-MB22), atomic reject on FR-S31 cross-rule violation, partial-
-    unmapped range rejected
+  - FC16: 6-register block write + read-back, atomic reject on one bad
+    value (FR-MB22), atomic reject on a bad 40005/40006 (FR-S40) and on an
+    FR-S31 cross-rule violation, partial-unmapped range rejected
   - FR-S31 cross rule via FC06 (avg*1000 >= window)
+  - FR-S40: 40005 C [1..6553] / 40006 pulses-per-rotation [1..1000] range
+    edges + rejects; a calibration change re-asserts status bits 0|1 on a
+    speed/combined build, inert on direction-only (FR-MB27); with
+    --speed-live, 30002 scales by C and by 1/pulses_per_rotation
   - FR-S30: status bits 0/1 re-assert after a valid 40002/40003 write,
     bit 0 clears after the first window, bit 1 after the averaging fill
   - FR-MB05 address filter: every other candidate address stays silent
@@ -28,7 +33,8 @@ identical on both per FR-MB27, the input-register active/zero map differs):
 
 Run:  .venv-m2k\\Scripts\\python.exe rs485_regs_check.py --build speed
       .venv-m2k\\Scripts\\python.exe rs485_regs_check.py --build direction
-      [--base http://windmeter-tester.local] [--slave N]
+      .venv-m2k\\Scripts\\python.exe rs485_regs_check.py --build combined
+      [--base http://windmeter-tester.local] [--slave N] [--speed-live]
 
 The DUT ends at defaults with the tester's wind poller restarted.
 """
@@ -122,7 +128,7 @@ def expect_exc(base, name, code, slave, fc, register, count=None, values=None):
 
 
 def read_holdings(base, slave):
-    r = mb(base, slave, 3, 0, count=4)
+    r = mb(base, slave, 3, 0, count=6)
     return r.get("registers") if r.get("ok") else None
 
 
@@ -253,6 +259,43 @@ def main() -> int:
     expect_exc(base, f"FC04 read 0x{edge - 5:04X} x6 (straddles edge) "
                "-> exc 02 (FR-MB14)", 2, S, 4, edge - 5, count=6)
 
+    # ---- A1 (speed present, --speed-live): FR-S40 live speed scaling -------
+    # ppr divides the RESULT (not the count) and C scales it, so the ratios
+    # are clean arithmetic independent of the per-window pulse count. Needs a
+    # stable PC1 pulse source (--speed-live). Runs while the DUT is still at
+    # defaults; restores 40005/40006 before the holding matrix below.
+    if args.speed_live and has_speed:
+        print("\n-- FR-S06/S40 live speed scaling (40005 C, 40006 ppr) --")
+
+        def read_speed_settled():
+            # A calibration change aborts the current window and starts a
+            # fresh one (FR-S30/S40); wait past one default window (1000 ms)
+            # so 30002 reflects the new setting, then read instantaneous.
+            time.sleep(1.4)
+            rr = mb(base, S, 4, 1, count=1)
+            return rr["registers"][0] if rr.get("ok") else None
+
+        base_v = read_speed_settled()
+        record("baseline 30002 > 0 at defaults (C=980, ppr=1)",
+               base_v is not None and base_v > 0,
+               f"{(base_v or 0) / 10:.1f} m/s")
+        expect_ok(base, "40006 ppr := 4", S, 6, 5, values=[4])
+        v4 = read_speed_settled()
+        ratio = (v4 / base_v) if base_v else 0
+        record("40006=4 quarters 30002 vs ppr=1 (FR-S40)",
+               bool(base_v) and 0.20 <= ratio <= 0.30,
+               f"{(v4 or 0) / 10:.1f} vs {(base_v or 0) / 10:.1f} m/s "
+               f"(ratio {ratio:.2f}, want ~0.25)")
+        expect_ok(base, "40006 ppr := 1 (restore)", S, 6, 5, values=[1])
+        expect_ok(base, "40005 C := 1960 (2x default)", S, 6, 4, values=[1960])
+        v2 = read_speed_settled()
+        ratio2 = (v2 / base_v) if base_v else 0
+        record("40005=1960 doubles 30002 vs C=980 (FR-S06/S40)",
+               bool(base_v) and 1.8 <= ratio2 <= 2.2,
+               f"{(v2 or 0) / 10:.1f} vs {(base_v or 0) / 10:.1f} m/s "
+               f"(ratio {ratio2:.2f}, want ~2.0)")
+        expect_ok(base, "40005 C := 980 (restore)", S, 6, 4, values=[980])
+
     # ---- A2 (direction present): offset -> reported angle, wraparound -------
     if has_direction:
         print("\n-- direction offset applied to angle (FR-S25/S26 wrap) --")
@@ -277,12 +320,12 @@ def main() -> int:
 
     # ---- B: holding defaults (FC03) ----------------------------------------
     print("\n-- FC03 holding registers --")
-    expect_ok(base, "FC03 block read: TDS §2.8 defaults [0,1000,10,4]",
-              S, 3, 0, count=4, want=[0, 1000, 10, 4])
-    for a, want in ((0, 0), (1, 1000), (2, 10), (3, 4)):
+    expect_ok(base, "FC03 block read: TDS §2.8 defaults [0,1000,10,4,980,1]",
+              S, 3, 0, count=6, want=[0, 1000, 10, 4, 980, 1])
+    for a, want in ((0, 0), (1, 1000), (2, 10), (3, 4), (4, 980), (5, 1)):
         expect_ok(base, f"FC03 single 4000{a+1}", S, 3, a, count=1,
                   want=[want])
-    expect_exc(base, "FC03 read 0x0004 (map edge) -> exc 02", 2, S, 3, 4,
+    expect_exc(base, "FC03 read 0x0006 (map edge) -> exc 02", 2, S, 3, 6,
                count=1)
 
     # ---- C: FC06 write matrix ----------------------------------------------
@@ -327,9 +370,30 @@ def main() -> int:
     expect_ok(base, "40004 unchanged after reject", S, 3, 3, count=1,
               want=[4])
 
+    # 40005 calibration factor C [1..6553], 40006 pulses/rotation [1..1000]
+    # (FR-S40) — present and range-checked on every build (FR-MB27); their
+    # effect on the speed math is exercised under --speed-live above.
+    print("\n-- FC06 40005/40006 anemometer calibration (FR-S40) --")
+    expect_ok(base, "40005 C := 1 (min)", S, 6, 4, values=[1])
+    expect_ok(base, "40005 C := 6553 (max)", S, 6, 4, values=[6553])
+    expect_ok(base, "40005 read-back 6553", S, 3, 4, count=1, want=[6553])
+    expect_exc(base, "40005 := 0 -> exc 03 (FR-MB19)", 3, S, 6, 4, values=[0])
+    expect_exc(base, "40005 := 6554 -> exc 03", 3, S, 6, 4, values=[6554])
+    expect_ok(base, "40005 unchanged after rejects", S, 3, 4, count=1,
+              want=[6553])
+    expect_ok(base, "40005 C := 980 (default)", S, 6, 4, values=[980])
+    expect_ok(base, "40006 ppr := 1 (min)", S, 6, 5, values=[1])
+    expect_ok(base, "40006 ppr := 1000 (max)", S, 6, 5, values=[1000])
+    expect_ok(base, "40006 read-back 1000", S, 3, 5, count=1, want=[1000])
+    expect_exc(base, "40006 := 0 -> exc 03", 3, S, 6, 5, values=[0])
+    expect_exc(base, "40006 := 1001 -> exc 03", 3, S, 6, 5, values=[1001])
+    expect_ok(base, "40006 unchanged after rejects", S, 3, 5, count=1,
+              want=[1000])
+    expect_ok(base, "40006 ppr := 1 (default)", S, 6, 5, values=[1])
+
     print("\n-- unmapped writes --")
-    expect_exc(base, "FC06 0x0004 (unmapped) -> exc 02 (FR-MB15)",
-               2, S, 6, 4, values=[1])
+    expect_exc(base, "FC06 0x0006 (unmapped) -> exc 02 (FR-MB15)",
+               2, S, 6, 6, values=[1])
     expect_exc(base, "FC06 0x00FF := 0xDEAD -> exc 02 "
                "(TEST_HOOKS absent on release build)",
                2, S, 6, 0x00FF, values=[0xDEAD])
@@ -339,22 +403,26 @@ def main() -> int:
 
     # ---- D: FC16 ------------------------------------------------------------
     print("\n-- FC16 multiple writes: commit + atomicity --")
-    expect_ok(base, "FC16 [40001..40004] := [100,2000,20,10]",
-              S, 16, 0, values=[100, 2000, 20, 10])
-    expect_ok(base, "read-back all 4", S, 3, 0, count=4,
-              want=[100, 2000, 20, 10])
+    expect_ok(base, "FC16 [40001..40006] := [100,2000,20,10,1960,2]",
+              S, 16, 0, values=[100, 2000, 20, 10, 1960, 2])
+    expect_ok(base, "read-back all 6", S, 3, 0, count=6,
+              want=[100, 2000, 20, 10, 1960, 2])
     expect_exc(base, "FC16 with one bad value (cutoff 99) -> exc 03",
-               3, S, 16, 0, values=[200, 3000, 30, 99])
-    expect_ok(base, "atomic: NOTHING committed (FR-MB22)", S, 3, 0, count=4,
-              want=[100, 2000, 20, 10])
+               3, S, 16, 0, values=[200, 3000, 30, 99, 1960, 2])
+    expect_ok(base, "atomic: NOTHING committed (FR-MB22)", S, 3, 0, count=6,
+              want=[100, 2000, 20, 10, 1960, 2])
+    expect_exc(base, "FC16 bad C (40005 := 6554) -> exc 03 (FR-S40)",
+               3, S, 16, 0, values=[100, 2000, 20, 10, 6554, 2])
+    expect_ok(base, "atomic: bad-C reject committed nothing",
+              S, 3, 0, count=6, want=[100, 2000, 20, 10, 1960, 2])
     expect_exc(base, "FC16 cross-violation (window 30000, avg 5) -> exc 03",
-               3, S, 16, 0, values=[300, 30000, 5, 10])
+               3, S, 16, 0, values=[300, 30000, 5, 10, 1960, 2])
     expect_ok(base, "atomic: cross reject committed nothing (FR-S31)",
-              S, 3, 0, count=4, want=[100, 2000, 20, 10])
-    expect_exc(base, "FC16 0x0002 x3 (partially unmapped) -> exc 02",
-               2, S, 16, 2, values=[30, 10, 1])
+              S, 3, 0, count=6, want=[100, 2000, 20, 10, 1960, 2])
+    expect_exc(base, "FC16 0x0004 x3 (straddles 0x0006 edge) -> exc 02",
+               2, S, 16, 4, values=[1000, 2, 1])
     expect_ok(base, "atomic: unmapped-range reject committed nothing",
-              S, 3, 0, count=4, want=[100, 2000, 20, 10])
+              S, 3, 0, count=6, want=[100, 2000, 20, 10, 1960, 2])
 
     print("\n-- Modicon-format addressing through the API --")
     expect_ok(base, "write 40004:=4 via Modicon string \"40004\"",
@@ -363,10 +431,10 @@ def main() -> int:
 
     # ---- E: restore defaults + FR-S30 status-bit dance ---------------------
     print("\n-- restore defaults; FR-S30 averaging-reset status bits --")
-    expect_ok(base, "FC16 restore defaults [0,1000,10,4]",
-              S, 16, 0, values=[0, 1000, 10, 4])
-    expect_ok(base, "defaults read back", S, 3, 0, count=4,
-              want=[0, 1000, 10, 4])
+    expect_ok(base, "FC16 restore defaults [0,1000,10,4,980,1]",
+              S, 16, 0, values=[0, 1000, 10, 4, 980, 1])
+    expect_ok(base, "defaults read back", S, 3, 0, count=6,
+              want=[0, 1000, 10, 4, 980, 1])
 
     if not args.skip_status_timing:
         r = mb(base, S, 4, 5, count=1)
@@ -391,6 +459,36 @@ def main() -> int:
         record("status bit 1 clears after averaging fill (~10 s)",
                bit1_at is not None and 8.0 < bit1_at < 16.0,
                f"cleared at +{bit1_at:.1f} s" if bit1_at else "never cleared")
+
+        # FR-S40: a calibration write (40005/40006) clears the averaging
+        # accumulator on a speed/combined build (re-asserting status bits
+        # 0|1, like a 40002/40003 write) but is inert on a direction-only
+        # build — it must not stomp the direction average (FR-MB27; the bug
+        # fixed 2026-07-09). Averaging is filled here (bit 1 cleared above),
+        # so this isolates the calibration write as the sole trigger.
+        pre = mb(base, S, 4, 5, count=1)
+        pre_s = pre["registers"][0] if pre.get("ok") else None
+        expect_ok(base, "40005 C := 1100 (calibration change)",
+                  S, 6, 4, values=[1100])
+        post = mb(base, S, 4, 5, count=1)
+        post_s = post["registers"][0] if post.get("ok") else None
+        if has_speed:
+            record("40005 change re-asserts status bits 0|1 "
+                   "(FR-S40, speed/combined)", post_s == 3,
+                   f"status {pre_s} -> {post_s} (want 3)")
+        else:
+            inert = post_s is not None and not (post_s & 2)
+            t0 = time.time()
+            while inert and time.time() - t0 < 2.0:
+                rr = mb(base, S, 4, 5, count=1)
+                if rr.get("ok") and (rr["registers"][0] & 2):
+                    inert = False
+                time.sleep(0.4)
+            record("40005 change does NOT reset the direction average "
+                   "(FR-MB27 inert on direction-only)", inert,
+                   f"status {pre_s} -> {post_s}, bit 1 stayed clear")
+        expect_ok(base, "40005 C := 980 (restore default)",
+                  S, 6, 4, values=[980])
 
     # ---- F: FR-MB05 address filter over RS-485 ------------------------------
     print("\n-- other addresses stay silent --")
