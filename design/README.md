@@ -13,7 +13,7 @@ scratchBook  →  TDS  →  softwareArchitecture  →  driverDevelopment  →  i
 
 | Document | Purpose | Status |
 |---|---|---|
-| [`TDS.md`](TDS.md) | **Technical Design Specification** — the requirements contract (FR-MB…, FR-S…, NFR-…) with measurable pass/fail criteria. The single source of truth for behaviour. | **v0.8** — 69 active requirements; hardened by a multi-agent audit + verification passes |
+| [`TDS.md`](TDS.md) | **Technical Design Specification** — the requirements contract (FR-MB…, FR-S…, NFR-…) with measurable pass/fail criteria. The single source of truth for behaviour. | **v0.9** — 69 active requirements + §4 as-built hardware (from the KiCad PCB); hardened by a multi-agent audit + verification passes |
 | [`softwareArchitecture.md`](softwareArchitecture.md) | **How** the requirements are met: the zero-ISR cooperative super-loop, the module split, and the sizing rationale. §7 embeds the UML diagrams. | Agreed baseline; diagrams added |
 | [`driverDevelopment.md`](driverDevelopment.md) | Plan + results for the three standalone drivers (pulse counting, ADC/circular-mean, Modbus RTU), each HIL-verified before integration. | Phases 0–3 complete, HIL-verified on silicon |
 | [`integrationPlan.md`](integrationPlan.md) | The product-firmware plan: six integration stages (A–F) and the §9 hardware-gated test set (MAX3485 rig + real PCB). Carries per-stage results. | Stages A–F done; §9.1 complete on all three variants; §9.2 (real PCB) pending |

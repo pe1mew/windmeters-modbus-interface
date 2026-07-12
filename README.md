@@ -24,7 +24,7 @@ holds the speed pulse count).
 
 | Area | State |
 |---|---|
-| Requirements | [`design/TDS.md`](design/TDS.md) **v0.8** — 69 active requirements (incl. FR-S39 persistence, FR-S40 runtime calibration), hardened by multi-agent audits + verification passes |
+| Requirements | [`design/TDS.md`](design/TDS.md) **v0.9** — 69 active requirements (incl. FR-S39 persistence, FR-S40 runtime calibration) + §4 as-built hardware from the KiCad PCB, hardened by multi-agent audits + verification passes |
 | Drivers | Pulse counting, ADC/circular-mean, Modbus RTU — all HIL-verified on silicon ([`design/driverDevelopment.md`](design/driverDevelopment.md)) |
 | Product firmware | Integration stages A–F complete; **TDS-functionally complete** on all three variants (speed, direction, combined), acceptance suite green ([`design/integrationPlan.md`](design/integrationPlan.md)) |
 | Hardware/HIL | KiCad schematic/PCB in design; **§9.1 MAX3485-rig HIL complete on all three variants**; real-PCB rows (§9.2) pending |
@@ -41,8 +41,9 @@ holds the speed pulse count).
   behind a solder jumper; A/B fail-safe bias; SM712 TVS.
 - **Power**: 24 V passive PoE on the spare pairs (4/5 = +, 7/8 = −) →
   DB207 bridge (polarity protection only) → HLK-K7803 buck → 3.3 V.
-- **Connectors**: 2× RJ45 for the daisy-chained bus, RJ14 to the sensor,
-  3-pin header for the WCH-LinkE programmer (SWIO on PD1).
+- **Connectors**: 2× RJ45 for the daisy-chained bus, two RJ14 sensor jacks
+  (anemometer + wind direction), 3-pin header for the WCH-LinkE programmer
+  (SWIO on PD1).
 
 ## Modbus register map (summary)
 

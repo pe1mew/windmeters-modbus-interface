@@ -32,6 +32,16 @@ version 1 will be tagged `fw-v1` at the first release.
   and implemented (see firmware): holding-register persistence (the
   volatile-register coherence review → FR-S39) and the combined-sensor
   firmware variant (→ `wind_combined`).
+- **`TDS.md` v0.9 (2026-07-12)** — promoted the as-built hardware design from
+  the KiCad PCB into a new **§4 Hardware** (MCU pin/net map, RS-485 front-end,
+  24 V PoE power chain, sensor front-ends, connectors, anemometer-calibration
+  derivation), reconciled the stale FR-MB23 HDSEL note with the shipped
+  remap-switching discipline, updated the pulses-per-rotation note for FR-S40,
+  and closed/narrowed the §6 open items (response latency measured 4–5 ms;
+  volatile-register and combined-variant decisions recorded; temperature range
+  bounded by the as-built parts). Flagged as-built deltas vs the old
+  `scratchBook.md` notes (fail-safe R2/R3 designators, power caps 100 µF/4.7 µF,
+  two RJ14 jacks, no ADC RC filter, unspecified zener).
 
 ### Added — hardware (KiCad)
 

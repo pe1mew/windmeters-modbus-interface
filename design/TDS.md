@@ -4,10 +4,10 @@
 |--------------|-------------------------------------------|
 | Document     | Technical Design Specification            |
 | Project      | `windmeters-modbus-interface` (DUT firmware) |
-| Version      | 0.8 (draft — §2 Modbus, §3 Software, §4 NFRs; v0.6 removed the device-address register (address is hardware-configured only); v0.7 added FR-S39 holding-register persistence and the combined build variant; v0.8 adds runtime+persistent anemometer calibration — FR-S40 holding registers 40005/40006, FR-S06/FR-S25 reworked so one image serves any anemometer) |
-| Date         | 2026-07-02                                |
-| Status       | Draft. Hardware, power, and calibration derivation remain in `design/scratchBook.md` until they graduate into this document. |
-| Related docs | `design/scratchBook.md` (register-map reasoning, hardware, calibration); sibling `windmeters-modbus-interface-tester` repo's `design/progress.md` §7 and `design/whatsNext.md` §3.2 (bench evidence cited in §2) |
+| Version      | 0.9 (draft — §2 Modbus, §3 Software, §4 Hardware, §5 NFRs; v0.6 removed the device-address register (address is hardware-configured only); v0.7 added FR-S39 holding-register persistence and the combined build variant; v0.8 added runtime+persistent anemometer calibration (FR-S40, 40005/40006); v0.9 promotes the as-built hardware design from the KiCad PCB into the new §4 and closes/narrows the §6 open items) |
+| Date         | 2026-07-12                                |
+| Status       | Draft. Hardware, power, and calibration derivation are now captured in §4 from the as-built KiCad PCB (`hardware/KiCad/`); residual open items are tracked in §6. |
+| Related docs | `hardware/KiCad/windmeter-modbus-interface.kicad_{sch,pcb}` (as-built PCB — source for §4); `design/scratchBook.md` (original register-map/hardware/calibration reasoning, superseded by §2/§4 where they overlap); sibling `windmeters-modbus-interface-tester` repo's `design/progress.md` §7 and `design/whatsNext.md` §3.2 (bench evidence cited in §2) |
 
 ---
 
@@ -35,6 +35,7 @@ Key design decisions fixed in this version:
 - Holding registers persisted across reset in flash-emulated non-volatile storage (FR-S39); §2.8 defaults apply only on first boot / erased store (FR-S21).
 - Device address is hardware-configured only (build define + PC4 solder jumper); there is no address register — see FR-S03/FR-MB07.
 - Exception 04 never emitted; faults handled by watchdog and defined register values — see FR-MB29.
+- Hardware captured as-built from the KiCad PCB (§4): one unmodified 2-layer board serves all three build variants (FR-S02), 24 V passive PoE, a MAX3485 transceiver, and RJ14 sensor jacks.
 
 ---
 
@@ -48,7 +49,7 @@ Key design decisions fixed in this version:
 | FR-MB02 | Must | Frames with an invalid CRC-16 shall be silently discarded. No response shall be sent. | Send a frame with a deliberately corrupted CRC; confirm no reply within 200 ms. |
 | FR-MB03 | Must | The firmware shall detect the inter-frame gap (3.5 character times) as the frame boundary. One character time is defined as 11 bits per the Modbus RTU specification (11/9600 s ≈ 1.15 ms), so 3.5 character times ≈ 4.0 ms at 9600 baud; this definition applies wherever this document says "character time". A new frame starts after this silence. | Two back-to-back valid requests separated by ≥5 ms are both processed correctly. Send the first 4 bytes of a valid request, pause ≥5 ms, then send the remaining bytes: no response of any kind within 200 ms; an immediately following complete valid request receives a correct response, proving the receiver state machine recovered. |
 | FR-MB04 | Must | The RS-485 driver-enable line (DE/RE on PC2) shall be asserted before the first transmitted byte and de-asserted after the last transmitted byte, within one character time (≈1.15 ms at 9600 baud). | Scope DE/RE and TX lines: DE asserts before TX start bit; DE de-asserts within one character time after the last stop bit. |
-| FR-MB23 | Must | While the firmware is transmitting (DE asserted), all bytes appearing on the USART receiver — including the device's own transmitted bytes looped back through the single-wire half-duplex connection (HDSEL on PD6, MAX3485 DI+RO tied) — shall be discarded and shall not be evaluated as an incoming frame. Frame reception shall re-arm only after DE is de-asserted and a 3.5-character idle time has elapsed. | Bus-analyser capture: send one valid FC04 request and confirm exactly one response frame is transmitted and the bus then stays idle — no self-triggered frame within 500 ms. Repeat 100 times back-to-back with zero spurious frames. |
+| FR-MB23 | Must | While the firmware is transmitting (DE asserted), any bytes appearing on the USART receiver shall be discarded and shall not be evaluated as an incoming frame. (The MAX3485 RO and DI are tied on the shared PD6 data node, §4.3; RO is high-Z while DE is asserted, and the firmware uses a remap-switching line discipline — USART1 RX native on PD6, TX remapped onto PD6 only for the response — rather than HDSEL, which bench testing showed intermittently swallows the first byte after bus idle.) Frame reception shall re-arm only after DE is de-asserted and a 3.5-character idle time has elapsed. | Bus-analyser capture: send one valid FC04 request and confirm exactly one response frame is transmitted and the bus then stays idle — no self-triggered frame within 500 ms. Repeat 100 times back-to-back with zero spurious frames. |
 | FR-MB24 | Must | On any USART receive error (overrun, framing, noise) or on receiving more bytes without a 3.5-character gap than the receive buffer holds (the buffer shall accept frames up to the 256-byte Modbus RTU ADU maximum), the firmware shall discard the frame in progress, clear the error condition, and resynchronise on the next ≥3.5-character idle gap. No buffer overflow and no receiver lockup shall occur. | Transmit continuous pseudo-random bytes at 9600 baud with no idle gaps for 60 s, then one valid FC04 request: a valid response arrives within the FR-MB20 budget; repeat 10 times with 100% success. Send a 400-byte "frame" followed by a ≥5 ms gap and a valid request: no response to the burst, valid response to the request; 20 repetitions without failure or reset. |
 | FR-MB25 | Must | All 16-bit register values and 16-bit address/quantity fields in request and response PDUs shall be transmitted big-endian (high byte first). The CRC-16 field shall be transmitted low byte first, high byte second, per the Modbus RTU specification. | With wind direction held at a known 90.0° (register value 900 = 0x0384), an FC04 read of raw 0x0000 returns data bytes 0x03 then 0x84 in that order, decoded as 900 by the tester with no byte-swap option. The final two bytes of every captured frame validate as CRC low-byte-first. |
 
@@ -176,7 +177,7 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 | FR-S26 | Must | The wind-speed computation shall be evaluated in integer arithmetic with no intermediate overflow over the full input domain: count 0–65535, window 100–60000 ms, C_scaled 1–6553 (FR-S25). The maximum intermediate, 65535 × 6553 × 10 = 4,294,508,550, fits an unsigned 32-bit integer. | Unit-test the scaling function at the corners: (count = 65535, C_scaled = 6553, window = 100 ms) → 65535 (clamped per FR-S06), not a wrapped value; (count = 65535, C_scaled = 980, window = 60000 ms) → exactly 10704, computed through a >2²⁹ intermediate without wrap. (No corner with C_scaled = 6553 produces an unclamped result within the legal window range — unclamped requires window ≥ 65539 ms.) |
 | FR-S27 | Should | If a TIM2 update (overflow) event occurs during a measurement window, the pulse count for that window shall saturate at 65535; register 30005 shall report 65535 and register 30002 shall report the speed computed from the saturated count per FR-S06 — never values derived from a modulo-65536 wrapped count. | Precondition: write 40003 = 60, then 40002 = 60000 (FR-S31 constraint). Inject a 2 kHz square wave downstream of the debounce RC for one full window (120,000 edges): 30005 reads 65535, not 54464. |
 
-*Assumption (hardware, non-normative): the reed relay produces 1 pulse per rotation — the C derivation in `scratchBook.md` and the FR-S06 formula assume this.*
+*Note (hardware, non-normative): the calibration derivation in §4.7 assumes 1 pulse per rotation; anemometers that emit a different number of pulses per revolution are handled at runtime via holding register 40006 (FR-S40, default 1), so no rebuild is required.*
 
 ### 3.4 Wind direction measurement (direction build)
 
@@ -184,7 +185,7 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 |----|----------|-------------|---------------------|
 | FR-S09 | Must | Wind direction shall be measured by reading the potentiometer wiper voltage on PA2 using the ADC in 10-bit ratiometric mode referenced to VDD. No external reference shall be used. | Via input register 30005 (raw ADC diagnostic on the direction build, §2.7): wiper at each end stop reads ≤5 and ≥1018 respectively. |
 | FR-S10 | Must | The ADC sample time shall be configured to ≥71 cycles to accommodate the 11 kΩ potentiometer source impedance. | Code review confirms the sample-time setting. Via 30005: 32 consecutive reads at a fixed mid position span ≤3 counts. |
-| FR-S11 | Must | Wind direction shall be reported in input register 30001 in units of 0.1°, range 0–3599, where 0 = North, increasing clockwise (WMO convention), derived from the oversampled ADC value (FR-S28). Firmware accuracy — with the potentiometer replaced by a precision divider of ≤0.1% ratio accuracy — shall be ±10 LSB (±1.0°), covering quantization and INL. End-to-end accuracy including potentiometer linearity is a separate hardware/calibration item (target ±2°, §5). | At each of 5 known divider ratios, the reported value is within ±10 LSB of the expected angle; 100 reads over 60 s at a fixed ratio span ≤3 counts. |
+| FR-S11 | Must | Wind direction shall be reported in input register 30001 in units of 0.1°, range 0–3599, where 0 = North, increasing clockwise (WMO convention), derived from the oversampled ADC value (FR-S28). Firmware accuracy — with the potentiometer replaced by a precision divider of ≤0.1% ratio accuracy — shall be ±10 LSB (±1.0°), covering quantization and INL. End-to-end accuracy including potentiometer linearity is a separate hardware/calibration item (target ±2°, §6). | At each of 5 known divider ratios, the reported value is within ±10 LSB of the expected angle; 100 reads over 60 s at a fixed ratio span ≤3 counts. |
 | FR-S12 | Must | A calibration offset shall be applied to the reading before reporting. The offset shall be configurable via holding register 40001, in units of 0.1°, range 0–3599. | Writing offset value X to 40001: reported direction shifts by X × 0.1°, wrapping correctly at 360°/0°. |
 | FR-S28 | Must | Each update of 30001 shall be derived from ≥16 ADC conversions (mean, or median with outlier rejection) at an update rate of ≥10 Hz, feeding the circular mean (FR-S14) at the same cadence. | Code review of the conversion scheme; the FR-S11 stability criterion (span ≤3 counts over 100 reads) passes. |
 | FR-S29 | Must | The reported direction shall always lie in 0–3599 — with the sole exception of the FR-S38 fault value 65535; the value 3600 shall never be emitted at the wrap. | A full 360° sweep at 10 Hz logging produces no reading in 3600–65534; crossing the wrap shows a single step between high (359x) and low (000x) values. |
@@ -220,81 +221,220 @@ The device address is not a register: it is hardware-configured per FR-S03 and u
 
 ---
 
-## 4. Non-functional requirements
+## 4. Hardware (as-built)
+
+This section captures the interface board as built in the KiCad design
+(`hardware/KiCad/windmeter-modbus-interface.kicad_{sch,pcb}`, KiCad 9;
+schematic title block dated 2026-06-28), superseding the hardware notes in
+`design/scratchBook.md`. The pin/net assignments in §4.2 are **normative** —
+the firmware in §2/§3 targets them (FR-S03/S04/S09/S18, FR-MB04/FR-MB23);
+component reference designators and values are as-built reference. One
+unmodified 2-layer PCB serves all three build variants (FR-S02).
+
+### 4.1 Architecture
+
+A CH32V003J4M6 (U1) drives a MAX3485 (U2) RS-485 transceiver. Power is 24 V
+passive PoE on the Ethernet spare pairs → a DB207 polarity-protection bridge
+(B1) → an HLK-K7803-500R3 3.3 V regulator (P1). The bus is brought out on two
+RJ45 jacks (J1, J3) for daisy-chaining; the two sensors connect on separate
+RJ14 jacks (J4 anemometer, J5 wind-direction); a 3-pin header (J2) exposes
+SWIO for the WCH-LinkE programmer. Termination, RS-485 pair selection, and
+address selection are solder jumpers on the bottom side. Board: 2-layer,
+1.6 mm, ≈ 67 × 92 mm, four Ø3.2 mm corner mounting holes.
+
+### 4.2 MCU pin assignment (normative)
+
+CH32V003J4M6, JEITA SOIC-8. The SOP-8 bonds out only six GPIO, and no USART1
+remap places TX and RX on separate pins simultaneously — hence the
+remap-switching data discipline on PD6 (FR-MB23), not HDSEL.
+
+| Pin | Port | Net | Function | Firmware |
+|-----|------|-----|----------|----------|
+| 1 | PD6 | `MB-TX/RX` | Modbus data — USART1 RX native, TX remapped in for the response; to MAX3485 RO+DI | FR-MB23, FR-S19 |
+| 2 | VSS | `GND` | Ground | — |
+| 3 | PA2 | `ANALOG_IN` | Wind-direction ADC input (ch0, ratiometric); from J5 wiper | FR-S09/S10/S11 |
+| 4 | VDD | `3V3` | +3.3 V supply | — |
+| 5 | PC1 | `PULSE_IN` | Anemometer pulse — TIM2 ETR external-clock counter; from J4 via debounce network | FR-S04 |
+| 6 | PC2 | `MB-RE/DE` | RS-485 driver enable (DE/RE) — to MAX3485; 10 k pull-down (R7) | FR-MB04, FR-S18 |
+| 7 | PC4 | `ADDRESS` | Address-select jumper — 10 k pull-up (R4) + JP6 to GND | FR-S03 |
+| 8 | PD1 | `SWIO` | Single-wire debug/flash — to J2; reserved, not used for I/O | — |
+
+### 4.3 RS-485 interface
+
+MAX3485 (U2), powered from 3.3 V.
+
+- **Data**: RO and DI tied on net `MB-TX/RX` → PD6. RO is high-Z while DE is
+  asserted, so the shared node is contention-free during transmit and needs
+  no pull-up — the fail-safe idle level is set on the A/B bias, not the logic
+  node.
+- **Enable**: DE and RE tied on net `MB-RE/DE` → PC2, with a 10 kΩ pull-down
+  (R7) holding the transceiver in receive while the MCU is in reset or being
+  flashed.
+- **Bus**: differential pair `RS485-A` / `RS485-B`, on both RJ45 jacks; the
+  A/B-to-contact pairing is solder-jumper selectable (JP2/JP3 for J1,
+  JP4/JP5 for J3).
+- **Fail-safe bias**: R3 20 kΩ pulls A → 3.3 V, R2 20 kΩ pulls B → GND
+  (idle = mark).
+- **Termination**: R1 120 Ω across A–B, enabled by solder jumper JP1 (open by
+  default).
+- **Protection**: D1 SM712 TVS across A/B/GND.
+
+### 4.4 Power supply
+
+- **Input**: 24 V passive PoE on the Ethernet spare pairs — RJ45 pins 4 & 5 =
+  +24 V, pins 7 & 8 = return — on both J1 and J3, so power passes down the
+  daisy chain.
+- **Polarity protection**: B1 DB207 bridge (used for reverse-polarity
+  protection, not AC rectification) → regulator input; return = GND.
+- **Regulator**: P1 HLK-K7803-500R3 (SIP-3, 3.3 V / 500 mA).
+- **Filtering**: C3 100 µF electrolytic bulk on the regulator input; C4 4.7 µF
+  electrolytic plus C1/C2 100 nF ceramic on the 3.3 V output. No inductor/LC
+  filter is fitted.
+
+### 4.5 Sensor front-ends
+
+**Anemometer** (pulse) → PC1, via RJ14 **J4** (pin 1 = 3.3 V, pin 2 = pulse,
+pin 3 = GND):
+
+- Pulse path J4 pin 2 → R6 100 Ω series → `PULSE_IN`. On that node: R5 10 kΩ
+  pull-up to 3.3 V (also the debounce pull-up — the reed relay pulls the node
+  to GND when closed), C5 100 nF to GND (debounce, τ ≈ 1 ms), and D2 zener to
+  GND (over-voltage clamp).
+- The 10 kΩ pull-up is why an open sensor wire, a stuck-closed relay, and true
+  calm are electrically indistinguishable (FR-S36).
+
+**Wind direction** (potentiometer) → PA2, via RJ14 **J5** (pin 1 = 3.3 V,
+pin 3 = GND, pin 4 = wiper):
+
+- The potentiometer is in the sensor, not on the PCB, and is fed ratiometrically
+  from the 3.3 V rail; the wiper drives `ANALOG_IN` → PA2 directly. The ADC is
+  10-bit ratiometric to VDD with no external reference (FR-S09) and a 73-cycle
+  sample time for the source impedance (FR-S10). There is no on-board RC filter
+  on `ANALOG_IN` — ratiometric operation cancels rail ripple, and an external
+  reference would break that cancellation.
+
+### 4.6 Connectors
+
+| Ref | Type | Purpose | Key pins |
+|-----|------|---------|----------|
+| J1, J3 | RJ45 (TE 215877-1) | Modbus daisy-chain | A/B on the signal contacts (jumper-paired); +24 V on 4 & 5, return on 7 & 8 |
+| J4 | RJ14 (6P4C) | Anemometer | 1 = 3.3 V, 2 = pulse, 3 = GND |
+| J5 | RJ14 (6P4C) | Wind direction | 1 = 3.3 V, 3 = GND, 4 = wiper |
+| J2 | 1×3 header | Programming | GND / SWIO / 3.3 V |
+
+Solder jumpers: JP1 termination; JP2–JP5 RS-485 pair select; JP6 address
+select (all bottom-side).
+
+### 4.7 Anemometer calibration derivation (C)
+
+The calibration factor C (metres per rotation) converts pulse rate to wind
+speed (FR-S06). It follows from cup-anemometer geometry:
+
+C = 2πr / η
+
+where r is the arm length from shaft centre to cup-body centre and η ≈ 0.45 is
+the empirical efficiency of a small three-cup rotor (textbook 0.5; 0.40–0.50
+across typical designs). For the reference sensor (r = 0.07 m, η = 0.45),
+C ≈ 0.98 m/rotation → the compile-time default 980 (units of 0.001 m/rotation,
+FR-S25). The η assumption carries ±10–12 % uncertainty versus a wind-tunnel
+figure; where that matters, C is obtained empirically — hold the anemometer
+beside a reference in the same airflow and solve C = v_reference /
+pulses_per_second.
+
+The compile-time default only **seeds** the running value: C lives in holding
+register 40005 and the pulses-per-rotation divisor in 40006, both
+runtime-writable and persisted (FR-S40/FR-S39), so one firmware image
+calibrates any anemometer with no rebuild. The geometry above assumes one
+pulse per rotation; other pulse counts are set in 40006 (default 1).
+
+### 4.8 As-built notes and deviations
+
+Captured from the KiCad design; where the as-built board differs from the
+earlier `scratchBook.md` notes, the board governs:
+
+- **Fail-safe bias designators** are the reverse of the notes (as-built: R3 →
+  A/3.3 V, R2 → B/GND); the bias function is identical.
+- **Power filtering** is C3 100 µF (input) + C4 4.7 µF (output) + 2 × 100 nF,
+  not the notes' 10 µF/22 µF split; the 100 µF is the input bulk.
+- **Two RJ14 sensor jacks** (J4 anemometer, J5 direction), not one; the
+  anemometer enters on a jack, not a screw terminal.
+- **No RC filter** on the wind-direction ADC input (the notes' 100 Ω + 10 µF is
+  not fitted) — see §4.5.
+- **D2 zener** is generic (`BZX84Cxx`) in the KiCad — pin the clamp voltage
+  (nominally 3.3 V, BZX84-C3V3) on the manufacturing BOM.
+- **Capacitor voltage ratings** are not carried in the KiCad Value fields;
+  confirm on the BOM.
+- The schematic title block reads "RS458" (typo for RS485) — cosmetic, fix on
+  the next PCB revision.
+
+---
+
+## 5. Non-functional requirements
 
 | ID | Priority | Requirement | Pass/Fail criterion |
 |----|----------|-------------|---------------------|
-| NFR-ENV01 | Must | All §2 and §3 requirements shall be met over an ambient temperature range of −25 °C to +70 °C. *(Range to be confirmed against the deployment site — §5; −40/+85 °C would require re-budgeting FR-S17.)* | In a climate chamber at both extremes: (a) 10,000 FC04 cycles at 9600 8N1 complete with zero framing/CRC errors; (b) the FR-S17 window measurement passes at its full-range tolerance. |
+| NFR-ENV01 | Must | All §2 and §3 requirements shall be met over an ambient temperature range of −25 °C to +70 °C. *(Range to be confirmed against the deployment site — §6; −40/+85 °C would require re-budgeting FR-S17.)* | In a climate chamber at both extremes: (a) 10,000 FC04 cycles at 9600 8N1 complete with zero framing/CRC errors; (b) the FR-S17 window measurement passes at its full-range tolerance. |
 | NFR-RES01 | Should | Each release build variant shall occupy no more than 14,336 bytes of flash (87.5% of 16 KB); static RAM (.data + .bss) plus documented worst-case stack shall not exceed 1,792 bytes (87.5% of 2 KB). | The linker map of each release build shows totals at or below the ceilings; the build script prints the numbers and fails the build when exceeded. |
 | NFR-BLD01 | Should | Both variants shall build from a clean checkout with a single documented command using a pinned toolchain (compiler name and exact version recorded in the repository). Two consecutive clean builds of the same commit shall produce bit-identical binaries. | Run the documented command twice from fresh clones of the same commit: SHA-256 of the two binaries per variant are identical; the recorded toolchain version matches the installed one. |
 | NFR-TST01 | Should | Every protocol-level pass/fail criterion in §2 that is executable over the serial link shall be implemented as an automated test case in `windmeters-modbus-interface-tester`, and each build variant shall pass 100% of these cases before any release is tagged. Excepted (verified manually per release with bench instruments): FR-MB01 (analyser decode), FR-MB04 (scope timing), FR-MB23 (bus capture). Withdrawn IDs (FR-MB16, FR-MB26) are excluded. | The tester's run report for the release commit lists every non-excepted, active FR-MB ID with result PASS for each variant; any FAIL or missing ID blocks the release. |
 
 ---
 
-## 5. Open items
+## 6. Open items
 
-- **Response latency measurement** — FR-MB20/21 specify ≤100 ms hard / ≤15 ms typical. Once real register-read code exists, measure actual turnaround and tune the tester's `mb_timeout_ms` (current default 200 ms / 1 retry provides adequate margin against the 100 ms limit).
-- **NFR-ENV01 temperature range** — −25…+70 °C assumed; confirm against the deployment site. Extending to −40/+85 °C requires re-budgeting FR-S17 (HSI drift) with chamber characterisation.
-- **End-to-end direction accuracy** — FR-S11 bounds firmware accuracy (±1.0°); the total including potentiometer linearity (target ±2°) is a hardware/calibration requirement to be specified when calibration graduates from `scratchBook.md`.
-- **Sections not yet covered by this document:** hardware (pin assignment, power supply, RS-485 wiring) and the calibration-factor derivation — still in `scratchBook.md`. Promote when requirement-level precision is needed. Note: `scratchBook.md` describes C as "compile-time define or holding register" — resolved to **both** (FR-S25/FR-S40): a compile-time *default* that seeds runtime-writable, persistent holding register 40005.
-- **Volatile-register coherence review (deferred decision, discussion of
-  2026-07-03).** FR-S21's all-volatile design was reviewed against the
-  question: *what is a writable register worth when its value is a
-  set-once constant that evaporates on reset?* Classification of the
-  holding map:
-  - **40001 (north offset)** — the acute case: an installation constant
-    whose default (0) is wrong for essentially every real install.
-    Volatile storage works only if a configuration-managing master
-    re-applies it after every reset (detected via 30008/FR-S34); plain
-    pollers (dataloggers, simple PLCs) silently read uncorrected bearings
-    after any brownout. Resolutions considered: (a) delete the register
-    (mechanical or master-side correction), (b) keep volatile and commit
-    explicitly to managed-master deployments, (c) make it persistent —
-    costed at ~0.5–0.6 KB code + 128 B reserved flash (two-page ping-pong
-    append log, halfword records, ~320k saves lifetime, erase deferred to
-    after the Modbus response; power-loss safe). TDS impact of (c): FR-S21
-    carve-out, new persistence requirement (commit point, atomicity,
-    endurance, corrupt-log fallback to the compile-time default), reset
-    matrix and re-apply note amendments.
-  - **40004 (low-speed cut-off)** — same criticism, quieter: a property of
-    the attached anemometer model, i.e. the sibling of C. Resolved the same
-    way as C (v0.8): both are runtime-writable, persistent holding registers
-    (40004, and C at 40005/FR-S40) with compile-time defaults — the
-    installation/sensor constant sticks without a rebuild.
-  - **40003 (averaging window)** — softer exposure: valid default, but a
-    silent reset-reversion (e.g. 600 s → 10 s) changes the statistical
-    character of the data with no visible error. At minimum a
-    documentation warning if left as is.
-  - **40002 (measurement window)** — clean: a genuine operational knob
-    with a universally valid default; exactly what volatile registers are
-    for.
-  - **Design rule distilled** (the address already followed it in v0.6 by
-    moving to hardware): *runtime-writable volatile registers are only
-    for operational knobs with universally valid defaults; constants of
-    the installation (offset), the attached sensor (C, cut-off), or the
-    device identity (address) belong in hardware, compile-time defines,
-    or persistent storage.* **Decision taken 2026-07-08 — resolution (c),
-    persistence, implemented for all four holding registers** (`persist.c`,
-    flash-emulated two-page ping-pong; FR-S39). FR-S21 gained its carve-out;
-    §2.8 defaults now apply only on first boot / erased store. Bench-verified
-    7/7 (settings survive a watchdog reset; blank store → defaults). This
-    also neutralises the 40001/40004 criticism above — the installation
-    constant and the sensor constant now stick — so the option of demoting
-    40004 to a compile-time define (like C/FR-S25) is no longer forced,
-    though still available.
-- **Combined-sensor firmware variant — IMPLEMENTED 2026-07-08.** Introduced
-  as the third variant `wind_combined` (details in
-  `design/integrationPlan.md` §10; validated 77/77 over RS-485 plus the raw
-  suite and FR-S38). Spec updated accordingly: FR-S32 build type 0x03;
-  FR-S03 address pair 32/37; 30005 carries the speed pulse count and the
-  direction raw ADC moves to 30013 (§2.7); FR-S01/S02/FR-MB27 reworded for
-  three variants. Open strategic question left for later: whether the
-  combined build eventually *replaces* the two single-sensor variants (its
-  fault machinery already handles absent sensors) — retiring them is a
-  separate decision, not taken here.
+Resolved items are kept briefly for traceability; only the residual work is
+still open.
+
+- **Response latency (FR-MB20/21) — CLOSED.** Measured with the real register
+  code: median/worst 5.2 ms on the TTL rig, and 1000/1000 through the MAX3485
+  at 4.07/4.12/4.17/4.44 ms (min/med/p99/max) — far under the 15 ms typical /
+  100 ms hard budgets. The tester's 200 ms / 1-retry default keeps ample
+  margin. (`software/hil/testReport.md`, P3-MB-LATENCY / R485-LAT-10D.)
+
+- **NFR-ENV01 temperature range — NARROWED.** The assumed −25…+70 °C is
+  covered by the as-built parts (CH32V003, MAX3485, HLK-K7803-500R3, DB207 are
+  industrial-grade, typically rated to at least −40…+85 °C). Residual: confirm
+  the electrolytic capacitors' temperature grade on the BOM (§4.8), confirm
+  the range against the deployment site, and — only if −40/+85 °C is required
+  — re-budget FR-S17 for HSI drift with chamber characterisation.
+
+- **End-to-end direction accuracy — firmware CLOSED, sensor residual.** FR-S11
+  firmware accuracy (±1.0°) is verified (−3.8 LSB against a precision
+  divider). The total including the vane potentiometer's mechanical linearity
+  (target ±2°) remains a sensor property, confirmed per installed vane. The C
+  derivation has graduated into §4.7. Note: the as-built ADC input has no RC
+  filter (§4.5) — the ratiometric supply and 73-cycle sample time carry the
+  FR-S11 stability (verified span ≤ 3 counts); an RC filter is a future
+  hardware option only if supply ripple ever proves limiting.
+
+- **Hardware & calibration promotion — DONE.** The pin/net map, RS-485
+  front-end, power chain, sensor front-ends, connectors, and the C derivation
+  are now in §4 (as-built from the KiCad PCB). `scratchBook.md` is retained as
+  historical reasoning.
+
+- **Volatile-register coherence — CLOSED.** The 2026-07-03 review asked what a
+  writable register is worth when its value evaporates on reset. The distilled
+  rule — *operational knobs with universally valid defaults may be volatile;
+  installation constants (offset), sensor constants (C, cut-off), and device
+  identity (address) belong in hardware, compile-time defaults, or persistent
+  storage* — was satisfied by making all six holding registers persistent
+  (FR-S39, decision 2026-07-08) and the address hardware-only (v0.6). §2.8
+  defaults now apply only on first boot / erased store.
+
+- **Combined variant — SHIPPED; one strategic question open.** `wind_combined`
+  (build 0x03, address 32/37) is implemented and validated
+  (`design/integrationPlan.md` §10; 77/77 over RS-485 plus the raw suite and
+  FR-S38). Undecided: whether the combined build eventually *replaces* the two
+  single-sensor variants (its fault machinery already handles an absent
+  sensor) — a product decision, not taken here.
+
+- **Hardware BOM follow-ups (§4.8).** Pin the D2 zener clamp voltage
+  (nominally BZX84-C3V3) and the capacitor voltage/temperature grades on the
+  manufacturing BOM; fix the "RS458" schematic-title typo on the next PCB
+  revision.
 
 ---
 
-*End of Technical Design Specification v0.8 (2026-07-09: FR-S40
-runtime + persistent anemometer calibration; v0.7 FR-S39 persistence +
-combined variant).*
+*End of Technical Design Specification v0.9 (2026-07-12: §4 as-built hardware
+promoted from the KiCad PCB, §6 open items closed/narrowed; v0.8 FR-S40
+calibration; v0.7 FR-S39 persistence + combined variant).*

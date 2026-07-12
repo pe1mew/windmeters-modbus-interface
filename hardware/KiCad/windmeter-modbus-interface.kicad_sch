@@ -5,7 +5,7 @@
 	(uuid "7e9d7b84-ea76-433c-8a90-337ecd1345cc")
 	(paper "A4")
 	(title_block
-		(title "Windmeter interface for Modbus RS458")
+		(title "Windmeter interface for Modbus RS485")
 		(date "2026-06-28")
 		(company "RFSee")
 		(comment 1 "Remko Welling")
@@ -7140,7 +7140,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "BZX84Cxx"
+		(property "Value" "BZX84-C3V3"
 			(at 212.09 93.9799 90)
 			(show_name no)
 			(do_not_autoplace no)
